@@ -76,8 +76,8 @@ graph TD
 
     %% Client Traffic
     ClientJS -->|Signaling WSS| Ingress
-    ClientJS -->|STUN/TURN Traffic (Port 3478)| Eturnal
-    ClientJS -->|Dedicated Telemetry (Port 8082)| Ingress
+    ClientJS -->|STUN/TURN Traffic| Eturnal
+    ClientJS -->|Dedicated Telemetry| Ingress
 
     %% RTP Media Streams (WebRTC)
     ClientJS --->|Upstream RTP (Individual Video/Audio)| GST_Mixer

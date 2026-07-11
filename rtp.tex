@@ -4,7 +4,7 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds}
+\usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
 
 \title{\textbf{A Shared-Nothing MCU Gateway \\
                for High-Density Video Conferencing \\
@@ -51,6 +51,7 @@ To minimize server-side overhead (which traditionally relies on heavy headless b
 to capture grid layouts), we present a C99 GStreamer-based MCU integrated directly into a share-nothing
 Erlang/OTP monolith pod running on Alpine Linux.
 
+\newpage
 \section{System Architecture}
 
 The system consists of three distinct layers: the proxy/routing ingress, the Erlang orchestrator,
@@ -59,51 +60,95 @@ and the GStreamer media compositor.
 \subsection{Architectural Topology}
 Figure~\ref{fig:topology} shows the physical and logical entities, protocols, and network connections.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[
-    node distance=1.2cm and 1.5cm,
-    block/.style={draw, rectangle, minimum height=2.8em, minimum width=8em, align=center, fill=blue!5, rounded corners},
-    database/.style={draw, rectangle, minimum height=2.8em, minimum width=8em, fill=green!5, align=center, rounded corners},
-    client/.style={draw, rounded corners, minimum height=2.8em, minimum width=12em, fill=orange!5, align=center},
-    ext/.style={draw, dashed, rectangle, minimum height=2.8em, minimum width=8em, fill=gray!5, align=center}
+
+\begin{tikzpicture}
+[
+    % ── Node styles ──────────────────────────────────────────────────────────────
+    block/.style={draw=blue!70, fill=blue!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    iblock/.style={draw=violet!70, fill=violet!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    tblock/.style={draw=teal!70, fill=teal!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    client/.style={draw=orange!80, fill=orange!5, rectangle, minimum height=4.5em, minimum width=9.5em, rounded corners=6pt, align=center, font=\small, thick, line width=1.2pt},
+    % ── Arrow styles ─────────────────────────────────────────────────────────────
+    arrow/.style={-{Stealth[scale=1.0]},  thick, draw=blue!70},
+    iarrow/.style={-{Stealth[scale=1.0]}, thick, draw=violet!70},
+    tarrow/.style={-{Stealth[scale=0.9]}, thick, draw=teal!70, dashed}
 ]
-    % Node definition (Constraint Based Relative Positioning - Swapped Mnesia and GStreamer)
-    \node[client] (browser) {Client Browser \\ (N2O JS / Telemetry)};
-    \node[block, right=of browser, xshift=0.5cm] (ingress) {Nginx Ingress \\ (Sticky Session Hashing)};
-    \node[ext, above=of ingress] (otel) {OTLP Collector \\ (Port 8082)};
-    % Isolated Monolith Pod boundary nodes
-    \node[block, below=of ingress] (n2o) {N2O Gateway \\ (Port 8081)};
-    \node[block, below=of n2o] (coord) {Room Coordinator \\ (Erlang GenServer)};
-    % Swapped Positions: gst on left, mnesia on right
-    \node[block, left=of coord, xshift=-0.5cm] (gst) {C99 GStreamer \\ (gst\_recorder Port)};
-    \node[block, above=of gst] (eturnal) {eturnal TURN \\ (Port 3478)};
-    \node[database, right=of coord, xshift=0.5cm] (mnesia) {Mnesia DB \\ (Local PVC)};
-    % Grouping the Monolith Pod
-    \begin{scope}[on background layer]
-        \node[draw, dashed, fill=gray!2, inner sep=15pt,
-              fit=(n2o) (coord) (mnesia) (eturnal) (gst), label=above:\textbf{Isolated Monolith Pod}] (pod) {};
-    \end{scope}
-    % Swapped S3 Storage position to far left to maintain planarity
-    \node[ext, left=of gst, xshift=-0.5cm] (s3) {S3 Storage \\ (Scality Bucket)};
-    % Arrows / Connections (Constraint Based Swapped Planar Connections)
-    \draw[thick, <->] (browser) -- node[above, scale=0.8] {WSS / HTTPS} (ingress);
-    \draw[thick, ->] (ingress) -- node[right, scale=0.8] {WS Signaling} (n2o);
-    \draw[thick, ->] (ingress) -- (otel);
-    % Planar Bezier curves and relative paths
-    \draw[thick, <->] (browser) -- node[left, scale=0.8] {STUN/TURN} (eturnal);
-    % Telemetry sweeping curve
-    \draw[thick, ->] (browser) .. controls +(up:2.0cm) and +(left:2.0cm) .. node[above, scale=0.8] {Telemetry (Port 8082)} (otel);
-    % Pod inner connections
-    \draw[thick, <->] (n2o) -- (coord);
-    \draw[thick, <->] (n2o) -- (mnesia);
-    \draw[thick, <->] (coord) -- (mnesia);
-    \draw[thick, ->] (coord) -- node[above, scale=0.8] {open\_port} (gst);
-    \draw[thick, ->] (gst) -- node[above, scale=0.8] {Mixed MP4} (s3);
-    % Planar curve for WebRTC SRTP media streams to left-placed gst node
-    \draw[thick, <->] (browser) .. controls +(left:2.5cm) and +(left:1.5cm) .. node[left, scale=0.8, xshift=-0.2cm] {WebRTC SRTP} (gst);
+
+    % ═══════════════════════════════════════════════════════════════════════════════
+    % GRID:  x_left=1.5  x_centre=3.5  x_right=5.5  |  Δy=1.5  |  ns_pad=0.6
+    %
+    % erp-infra  boundary: (1.7, 2.1) – (5.3, 4.3)   [centre Traefik at (3.5, 3.2)]
+    % erp-rtp    boundary: (-0.3, -2.6) – (7.3, 1.1)  [gap 1.0 cm below erp-infra]
+    % erp-telemetry boundary: (-0.3, -8.8) – (7.3,-3.6) [gap 1.0 cm below erp-rtp]
+    % ═══════════════════════════════════════════════════════════════════════════════
+
+    % ── erp-infra namespace ───────────────────────────────────────────────────────
+    \node[iblock] (ingress) at (0.68, 3.0) {Traefik Ingress \\ (Sticky Session)};
+    \draw[dashed, violet!50, line width=1pt, rounded corners=6pt] (-2.02, 2.08) rectangle (8.29, 4.22);
+    \node[anchor=north east, font=\footnotesize\bfseries\color{violet!70}] at (5.01, 4.12) {erp-infra};
+
+    % ── erp-rtp namespace ─────────────────────────────────────────────────────────
+    % Left col: GStreamer (y=0.0) / eturnal (y=−1.5)
+    % Right col: N2O (y=0.0)      / Coord   (y=−1.5)
+
+    \node[block] (gst)     at (0.58,  0.37) {C99 GStreamer \\ (gst\_recorder)};
+    \node[block] (eturnal) at (0.59, -1.16) {eturnal TURN \\ (Port 3478)};
+    \node[block] (n2o)     at (6.02, -0.07) {N2O Gateway \\ (Port 8081)};
+    \node[block] (coord)   at (4.89, -1.9)  {Room Coordinator \\ (GenServer)};
+    \draw[dashed, gray!50, line width=1pt, rounded corners=6pt] (-2.02, -2.6) rectangle (8.31, 1.1);
+    \node[anchor=north east, font=\footnotesize\bfseries\color{gray!70}] (node2) at (4.79, 0.92) {erp-rtp};
+
+    % ── Client – outside all namespaces (vertically centred on erp-rtp left col) ─
+    \node[client] (browser) at (-5.5, -0.75) {\textbf{Client Application} \\ (N2O.JS)};
+
+    % ── erp-infra → erp-rtp: Traefik feeds N2O ───────────────────────────────────
+    \draw[iarrow, ->] (ingress.south east) to[out=300, in=50] node[right=10pt, font=\tiny, pos=0.45] {WS Signaling} (n2o.north);
+    \draw[iarrow, ->] (n2o) to[out=-60, in=90] (5.5,-1.45);
+
+    % ── Client → namespaces: 3-anchor fan ────────────────────────────────────────
+    % browser.north → Traefik  (steep upward arc, WSS/HTTPS)
+    \draw[arrow, <->] (browser.north) to[out=90, in=180] node[above, font=\tiny, pos=0.45] {WSS / HTTPS} (ingress.west);
+
+    % browser.north east → GStreamer  (gentle upward, WebRTC SRTP)
+    \draw[arrow, <->] (browser.north east) to[out=451, in=46] node[left=10pt, font=\tiny, very near start, pos=0.1] {WebRTC SRTP} (gst.west);
+    \draw[arrow, <->] (coord.north) to[out=79, in=228] node[above=10pt, font=\tiny, very near start] {WebRTC SRTP} (gst.south east);
+
+    % browser.south east → eturnal  (gentle downward, STUN/TURN)
+    \draw[arrow, <->] (browser.south east) to[out=297, in=267] node[below, font=\tiny, pos=0.5] {STUN/TURN} (eturnal.south west);
+
+    % ═══════════════════════════════════════════════════════════════════════════════
+    % erp-telemetry namespace
+    % Row 1: rtp-telemetry (3.5, -4.7)  — OTLP aggregator
+    % Row 2: otel-collector (3.5, -6.2)
+    % Row 3: grafana (1.5), prometheus (3.5), opensearch (5.5)  at y=−7.7
+    % ═══════════════════════════════════════════════════════════════════════════════
+    \node[tblock] (rtptel)   at (3.5, -4.7) {rtp-telemetry \\ (OTLP Receiver)};
+    \node[tblock] (otel)     at (3.5, -6.2) {otel-collector \\ (Port 4317)};
+    \node[tblock] (grafana)  at (-0.01, -7.38) {Grafana \\ (Dashboards)};
+    \node[tblock] (prom)     at (3.51, -8.24) {Prometheus \\ (Metrics)};
+    \node[tblock] (opensrch) at (6.5, -7.37) {OpenSearch \\ (Logs)};
+    \draw[dashed, teal!50, line width=1pt, rounded corners=6pt] (-2.02, -9.0) rectangle (8.3, -3.6);
+    \node[anchor=north east, font=\footnotesize\bfseries\color{teal!70}] at (4.8, -3.76) {erp-telemetry};
+
+    % ── Telemetry fan: all 4 erp-rtp pods → rtp-telemetry (out=−90, varying in) ─
+    \node[font=\tiny, text=teal!70] (node1) at (3.5, -3.1) {Telemetry (OTLP)};
+
+    \draw[tarrow, ->] (n2o.east) to[out=291, in=0] (rtptel.east);
+    \draw[tarrow, ->] (eturnal.south) to[out=-90, in=140]  (rtptel.north west);
+    \draw[tarrow, ->] (gst.south west) to[out=199, in=148] (rtptel.west);
+    \draw[tarrow, ->] (browser.south) to[out=270, in=180] (rtptel.south west);
+    \draw[tarrow, ->] (coord.south) to[out=230, in=57] (rtptel.north east);
+
+    % ── Internal erp-telemetry pipeline ──────────────────────────────────────────
+    \draw[tarrow, ->] (rtptel.south) -- (otel.north);
+    \draw[tarrow, ->] (otel.south) to[out=-90, in=90] (grafana.north);
+    \draw[tarrow, ->] (otel.south)  --                (prom.north);
+    \draw[tarrow, ->] (otel.south) to[out=-90, in=90] (6.86,-7);
+
 \end{tikzpicture}
-\caption{System topology planar graph layout with swapped database and media broker components. Avoids line crossings through relative constraints.}
+\caption{Three-namespaces architecture.}
 \label{fig:topology}
 \end{figure}
 
@@ -252,6 +297,7 @@ stage before being re-encoded into Opus for WebRTC downstream broadcast:
 S_{\text{output}}(t) = \text{Clamp}(S_{\text{mixed}}(t), -S_{\text{max}}, S_{\text{max}})
 \end{equation}
 
+\newpage
 \section{Capacity Calculation, Telemetry \& SRE Metrics}
 
 Table~\ref{tab:codecs_mcu} specifies the streaming codec, resolution, and bitrates assumed in our capacity review.

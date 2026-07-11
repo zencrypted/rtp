@@ -12,7 +12,7 @@ into a single cohesive Erlang/OTP application.
 ```
 rtp/
 ├── rebar.config             # Monolith dependencies (Cowboy, N2O, Nitro, KVS, Syn, Eturnal)
-├── run.sh                   # macOS developer startup script (exports OpenSSL/libyaml CFLAGS)
+
 ├── build.config             # satisfying config consultation hooks during compile
 ├── config/
 │   ├── sys.config           # Database directory, Eturnal TCP/UDP listeners, and N2O parameters

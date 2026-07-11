@@ -6,7 +6,7 @@
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
 
-\title{\textbf{A Shared-Nothing MCU Gateway \\
+\title{\textbf{A Shared-Nothing Minimal MCU Gateway \\
                for High-Density Video Conferencing \\
                on Alpine Linux in Kubernetes}}
 
@@ -200,6 +200,20 @@ Protocol & Layer / Port & Primary Data Formats & Functional Description \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsubsection{Detailed Protocol Descriptions}
+
+\paragraph{1. WebRTC SDP \& ICE (RTP/RTCP Data)}
+The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling channel. It acts as the negotiation mechanism for media capabilities, where the GStreamer OS process outputs SDP offers containing its supported codecs (e.g., H.264, VP8, Opus) and payload types. The client browser responds with an SDP answer. Simultaneously, Interactive Connectivity Establishment (ICE) candidates are exchanged to discover the optimal network path. Once the ICE handshake completes, the actual media data is transmitted as encrypted SRTP (Secure Real-time Transport Protocol) and SRTCP packets over UDP.
+
+\paragraph{2. TURN (Traversal Using Relays around NAT)}
+When direct Peer-to-Peer (P2P) UDP connections are blocked by restrictive enterprise firewalls or symmetric NATs, the system falls back to the \texttt{eturnal} TURN server. The TURN protocol (RFC 8656) encapsulates the SRTP media packets within its own framed binary format and relays them through port 3478 (UDP or TCP). This guarantees 100\% connectivity for all participants, albeit with a slight latency and bandwidth penalty due to the relay overhead.
+
+\paragraph{3. WebSocket API}
+The WebSocket (WS) API serves as the primary signaling and control plane, powered by the Cowboy web server and the N2O framework. It operates over WSS (Port 8081) using a binary-encoded or JSON text payload. The WS connection is stateful and sticky-routed to the specific Erlang node hosting the room. It handles pub/sub events such as \texttt{peer\_joined}, \texttt{peer\_left}, chat messages, and the critical SDP/ICE signaling payloads.
+
+\paragraph{4. Telemetry (OTLP)}
+The system employs the OpenTelemetry Protocol (OTLP) to export QoS metrics, traces, and logs. Client browsers and the backend Erlang nodes stream telemetry data (such as packet loss, jitter, and CPU utilization) to the \texttt{rtp-telemetry} OTLP Receiver via HTTPS/WSS (Port 8082). The payloads are serialized as Protocol Buffers (Protobuf) or JSON. This data is then ingested by the \texttt{otel-collector} and routed to Prometheus and OpenSearch for real-time observability in Grafana.
 
 \subsubsection{Signaling Sequence Flow}
 

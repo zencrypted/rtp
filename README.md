@@ -75,18 +75,18 @@ graph TD
     end
 
     %% Client Traffic
-    ClientJS -->|Signaling WSS| Ingress
-    ClientJS -->|STUN/TURN Traffic| Eturnal
-    ClientJS -->|Dedicated Telemetry| Ingress
+    ClientJS -->|Signaling WSS [Port 8081]| Ingress
+    ClientJS -->|STUN/TURN Traffic [Port 3478]| Eturnal
+    ClientJS -->|Dedicated Telemetry [Port 8082]| Ingress
 
     %% RTP Media Streams (WebRTC)
-    ClientJS --->|Upstream RTP - Individual Video/Audio -| GST_Mixer
-    GST_Mixer --->|Downstream Broadcast - Composited Video Grid + Mixed Audio -| ClientJS
-    ClientJS <-->|Relayed WebRTC SRTP - TURN Relayed Media -| Eturnal
+    ClientJS --->|Upstream RTP [Port 10000-20000]| GST_Mixer
+    GST_Mixer --->|Downstream Broadcast [Port 10000-20000]| ClientJS
+    ClientJS <-->|Relayed WebRTC SRTP [Port 3478]| Eturnal
 
     %% Internal routing
-    Ingress -->|Signaling WSS| N2O_Gate
-    Ingress -->|Telemetry WSS| Otel_Col
+    Ingress -->|Signaling WSS [Port 8081]| N2O_Gate
+    Ingress -->|Telemetry WSS [Port 8082]| Otel_Col
 
     %% Monolith orchestration
     N2O_Gate <-->|Local Message Passing| Room_Coord

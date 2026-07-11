@@ -1,18 +1,15 @@
-# УАК ВЗ: Monolithic WebRTC Video Conference Gateway
+# Monolithic WebRTC Video Conference Gateway
 
 This repository contains the unified, lightweight RTP monorepo designed for high-performance WebRTC
 video conferencing in the SYNRC CHAT environment. It consolidates N2O WebSocket pages,
 room process supervisors, Mnesia persistence, and in-process GStreamer mixer port drivers
 into a single cohesive Erlang/OTP application.
 
----
-
 ## 1. Directory Blueprint
 
 ```
 rtp/
 ├── rebar.config             # Monolith dependencies (Bandit, N2O, Nitro, KVS, Syn, Eturnal)
-
 ├── build.config             # satisfying config consultation hooks during compile
 ├── config/
 │   ├── sys.config           # Database directory, Eturnal TCP/UDP listeners, and N2O parameters
@@ -36,8 +33,6 @@ rtp/
     ├── gst_recorder.c       # GStreamer WebRTC compositor C99 implementation
     └── gst_recorder         # compiled native C99 binary spawned by Erlang port
 ```
-
----
 
 ## 2. Unified Architecture Topology
 
@@ -105,8 +100,6 @@ graph TD
     Otel_Col -->|Metrics| Grafana
 ```
 
----
-
 ## 3. Technical Features
 
 * **Zero Headless Browsers**:     Recording and compositing grid layouts is done using native GStreamer compositor port
@@ -124,30 +117,36 @@ graph TD
 ## 3. Configuration & Ports
 
 Erlang bindings and listeners are defined inside `config/sys.config`:
+
 * **Port 8081**: Main signaling/web assets connection gateway.
 * **Port 8082**: High-priority telemetry socket ingestion gateway.
 * **Port 3478 (UDP/TCP)**: ProcessOne `eturnal` STUN/TURN traffic listener.
 * **Mnesia Dir**: Default target is `/var/lib/rtp/mnesia` (PVC). Fallback is `./mnesia_data` if unwritable.
 
----
-
 ## 4. How to Run Locally
 
 ### 4.1 Prerequisites (macOS)
+
 Install GStreamer tools and plugins (base, good, bad) using Homebrew:
+
 ```bash
 brew install gstreamer
 ```
 
 ### 4.2 Start the Monolith
+
 Due to macOS compiling NIF extensions in non-standard paths, launch the Rebar3 shell using the pre-configured script wrapper:
+
 ```bash
-./run.sh
+./rebar3 shell
 ```
+
 This automatically exports OpenSSL/libyaml configurations, compiles the codebase, and launches the VM:
+
 ```erlang
 ===> Booted eturnal
 ===> Booted mnesia
 ===> Booted rtp
 ```
+
 Once booted, access the video interface at `http://localhost:8081/app/login.htm`.

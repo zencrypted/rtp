@@ -312,8 +312,8 @@ C_{\text{gst}}(4) \approx 0.15\text{ (Decoders)} + 0.20\text{ (Compositor)} + 0.
 \subsection{Capacity Boundaries (4 Cores, 4 GB RAM)}
 Using the parameters defined above, we evaluate the maximum capacity limits of a single pod.
 
-\subsubsection{Scenario A: Idle Signaling \& TURN Relay (No GStreamer Mixers)}
-Given: $R = 0$, $N = 10,000$, $N_{\text{turn}} = 2,000$ (relaying 2~Gbps aggregate traffic).
+\subsubsection{Scenario A: Idle Signaling \& TURN Relay}
+No GSreamer mixers. Given: $R = 0$, $N = 10,000$, $N_{\text{turn}} = 2,000$ (relaying 2~Gbps aggregate traffic).
 \begin{equation}
 M_{\text{total}} = 50\text{ MB} + (10,000 \cdot 2\text{ KB}) + (2,000 \cdot 10\text{ KB}) = 90\text{ MB}
 \end{equation}
@@ -322,7 +322,7 @@ C_{\text{total}} = 0.15\text{ Cores (Erlang)} + 0.80\text{ Cores (TURN Relay)} =
 \end{equation}
 Evaluation: The node is highly stable. RAM utilization is at $2.25\%$ and CPU is at $23.7\%$.
 
-\subsubsection{Scenario B: Active Recording \& Compositing (Mixed Workload)}
+\subsubsection{Scenario B: Active Recording \& Compositing}
 Given: $N = 1,000$, $N_{\text{turn}} = 100$, and $R$ active mixing rooms (4 inputs each).
 \begin{align*}
 M_{\text{total}} &= 50\text{ MB} + 2\text{ MB} + 1\text{ MB} + R \cdot 250\text{ MB} \le 4,000\text{ MB} \implies R \le 15.78\text{ Rooms} \\
@@ -330,7 +330,7 @@ C_{\text{total}} &= 0.015\text{ Cores} + 0.04\text{ Cores} + R \cdot 1.00\text{ 
 \end{align*}
 Under standard CPU limits, the pod saturates at $R = 3$ active mixed rooms.
 
-\subsubsection{Target Scenario: Scaling to 50 Concurrent Active Video Rooms}
+\subsubsection{Target Scenario: Scaling to 50 Concurrent Rooms}
 To achieve the operational target of 50 concurrent active rooms, three architectural models are formulated:
 \begin{enumerate}
     \item \textbf{Vertical Monolith Node (Scale-Up)}: Host all 50 rooms inside a single monolithic VM/Pod container. Requires $M_{\text{total}} \approx 12.6$~GB RAM and $C_{\text{total}} \approx 50.1$~Cores. Requires a 52-Core / 16~GB RAM bare-metal server node.

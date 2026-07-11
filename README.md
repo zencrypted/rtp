@@ -48,19 +48,19 @@ directly to local GStreamer port processes.
 ```mermaid
 graph TD
     subgraph "Client Browser"
-        ClientJS["Web Client [N2O Client + Telemetry Probe]"]
+        ClientJS["Web Client"]
     end
 
     subgraph "Kubernetes Cluster (erp-rtp)"
         Ingress["Nginx Ingress / K8s Service"]
 
         subgraph "RTP Monolith Pod (Erlang Node)"
-            N2O_Gate["N2O WebSocket Gateway (Cowboy)"]
-            Room_Coord["Room Coordinator (GenServer)"]
+            N2O_Gate["N2O WebSocket"]
+            Room_Coord["Room Coordinator"]
             Syn_Reg["Syn Process Registry"]
-            Mnesia_DB["Mnesia DB (Local / Clustered Disc)"]
-            Eturnal["TURN/STUN Server (eturnal)"]
-            GST_Mixer["GStreamer Port (In-VM OS Process)"]
+            Mnesia_DB["Mnesia DB"]
+            Eturnal["TURN Server"]
+            GST_Mixer["GStreamer Port"]
         end
     end
 

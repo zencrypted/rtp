@@ -1,0 +1,23 @@
+{application, rtp, [
+    {description, "Unified WebRTC Video chat rooms & signaling monolith"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {rtp_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        inets,
+        ssl,
+        cowboy,
+        n2o,
+        nitro,
+        kvs,
+        syn,
+        eturnal,
+        mnesia
+    ]},
+    {env,[]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.

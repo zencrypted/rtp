@@ -1,0 +1,3 @@
+ElixirLib = string:trim(os:cmd("elixir -e 'IO.puts(Path.expand(Path.dirname(:code.lib_dir(:elixir))))'")),
+code:add_pathsa(filelib:wildcard(ElixirLib ++ "/*/ebin")),
+CONFIG.

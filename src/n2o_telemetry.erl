@@ -1,7 +1,7 @@
 -module(n2o_telemetry).
--behaviour(cowboy_websocket).
+-behaviour('Elixir.WebSock').
 
--export([init/2, websocket_init/1, websocket_handle/2, websocket_info/2]).
+-export([init/1, handle_in/2, handle_info/2, terminate/2]).
 
 -record(state, {
     user_id :: binary(),
@@ -9,34 +9,23 @@
     otel_collector_url :: string()
 }).
 
-init(Req, State) ->
-    Headers = cowboy_req:headers(Req),
-    ClientCertDN = maps:get(<<"x-ssl-client-s-dn">>, Headers, <<>>),
-    ClientCertSAN = maps:get(<<"x-ssl-client-san">>, Headers, <<>>),
+init({UserId, RoomId, CollectorUrl}) ->
+    {ok, #state{user_id = UserId, room_id = RoomId, otel_collector_url = CollectorUrl}}.
 
-    case auth_translation:verify_client_cert(ClientCertDN, ClientCertSAN) of
-        {ok, UserId, RoomId, _Role} ->
-            CollectorUrl = "http://otel-collector.erp-telemetry.svc.cluster.local:4318/v1/metrics",
-            {cowboy_websocket, Req, #state{user_id = UserId, room_id = RoomId, otel_collector_url = CollectorUrl}};
-        {error, unauthorized} ->
-            Req2 = cowboy_req:reply(401, #{}, <<"Unauthorized Telemetry">>, Req),
-            {ok, Req2, State}
-    end.
-
-websocket_init(State) ->
-    {ok, State}.
-
-websocket_handle({text, Msg}, State) ->
+handle_in({text, Msg}, State) ->
     Stats = jsone:decode(Msg),
     OtlpMetrics = format_otlp_metrics(State#state.user_id, State#state.room_id, Stats),
     spawn(fun() -> ship_to_otel(State#state.otel_collector_url, OtlpMetrics) end),
     {ok, State};
 
-websocket_handle(_Frame, State) ->
+handle_in(_Frame, State) ->
     {ok, State}.
 
-websocket_info(_Info, State) ->
+handle_info(_Info, State) ->
     {ok, State}.
+
+terminate(_Reason, _State) ->
+    ok.
 
 %% Internal Functions
 

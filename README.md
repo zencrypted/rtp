@@ -75,7 +75,7 @@ graph TD
     end
 
     %% Client Traffic
-    ClientJS -->|Signaling WSS (Port 8081)| Ingress
+    ClientJS -->|Signaling WSS| Ingress
     ClientJS -->|STUN/TURN Traffic (Port 3478)| Eturnal
     ClientJS -->|Dedicated Telemetry (Port 8082)| Ingress
 

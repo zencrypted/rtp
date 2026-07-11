@@ -1,4 +1,4 @@
-# Monolithic WebRTC Video Conference Gateway
+# WebRTC Grpoup Video Conference HPA Server
 
 This repository contains the unified, lightweight RTP monorepo designed for high-performance WebRTC
 video conferencing in the SYNRC CHAT environment. It consolidates N2O WebSocket pages,

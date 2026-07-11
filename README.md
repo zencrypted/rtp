@@ -11,7 +11,7 @@ into a single cohesive Erlang/OTP application.
 
 ```
 rtp/
-├── rebar.config             # Monolith dependencies (Cowboy, N2O, Nitro, KVS, Syn, Eturnal)
+├── rebar.config             # Monolith dependencies (Bandit, N2O, Nitro, KVS, Syn, Eturnal)
 
 ├── build.config             # satisfying config consultation hooks during compile
 ├── config/

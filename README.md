@@ -11,6 +11,8 @@ into a single cohesive Erlang/OTP application.
 rtp/
 ├── rebar.config             # Monolith dependencies (Bandit, N2O, Nitro, KVS, Syn, Eturnal)
 ├── build.config             # satisfying config consultation hooks during compile
+├── c_src/
+│   └── gst.c                # GStreamer WebRTC compositor C99 implementation
 ├── config/
 │   ├── sys.config           # Database directory, Eturnal TCP/UDP listeners, and N2O parameters
 │   └── vm.args              # Cluster node cookie and naming args
@@ -30,8 +32,7 @@ rtp/
     │   ├── index.html       # dark-mode dashboard with layout controls and telemetry charts
     │   ├── client.js        # main N2O signaler client
     │   └── telemetry.js     # dedicated prioritized stats reporter querying PeerConnection stats
-    ├── gst_recorder.c       # GStreamer WebRTC compositor C99 implementation
-    └── gst_recorder         # compiled native C99 binary spawned by Erlang port
+    └── gst                  # compiled native C99 binary spawned by Erlang port
 ```
 
 ## 2. Unified Architecture Topology

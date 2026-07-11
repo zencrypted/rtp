@@ -48,7 +48,7 @@ directly to local GStreamer port processes.
 ```mermaid
 graph TD
     subgraph "Client Browser"
-        ClientJS["Web Client (N2O Client + Telemetry Probe)"]
+        ClientJS["Web Client [N2O Client + Telemetry Probe]"]
     end
 
     subgraph "Kubernetes Cluster (erp-rtp)"
@@ -80,9 +80,9 @@ graph TD
     ClientJS -->|Dedicated Telemetry| Ingress
 
     %% RTP Media Streams (WebRTC)
-    ClientJS --->|Upstream RTP (Individual Video/Audio)| GST_Mixer
-    GST_Mixer --->|Downstream Broadcast (Composited Video Grid + Mixed Audio)| ClientJS
-    ClientJS <-->|Relayed WebRTC SRTP (TURN Relayed Media)| Eturnal
+    ClientJS --->|Upstream RTP - Individual Video/Audio -| GST_Mixer
+    GST_Mixer --->|Downstream Broadcast - Composited Video Grid + Mixed Audio -| ClientJS
+    ClientJS <-->|Relayed WebRTC SRTP - TURN Relayed Media -| Eturnal
 
     %% Internal routing
     Ingress -->|Signaling WSS| N2O_Gate

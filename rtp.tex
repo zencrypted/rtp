@@ -23,11 +23,11 @@
 \begin{abstract}
 This paper presents the architectural design, implementation, and systems capacity review of \texttt{rtp},
 a Multipoint Control Unit (MCU) gateway designed for high-density, real-time video conferencing in isolated
-judicial network namespaces. Traditional architectures (e.g., Selective Forwarding Units or
+distributed network namespaces. Traditional architectures (e.g., Selective Forwarding Units and
 headless-browser-based recording egress systems) suffer from high CPU and memory overhead.
 We propose a collapsed, monolithic Erlang/GStreamer node deployed as share-nothing Alpine
 Linux pods. By binding all participants of a room to the same pod instance using Ingress
-Sticky Sessions and disabling Erlang cluster distribution (\texttt{-no\_distribution}),
+Sticky Sessions and disabling Erlang cluster distribution,
 the system scales horizontally without inter-node cluster link storms. Real-time video grid
 compositing (2x2 layout in 1080p) and audio mixing are delegated directly to a local,
 lightweight C99 GStreamer port binary, exchanging WebRTC SDP/ICE signaling lines directly over
@@ -37,7 +37,7 @@ connections and reduces media encoding resource requirements by over 60\% when h
 
 \section{Introduction}
 
-Real-time audio and video conferencing in judicial networks requires both high reliability (liveness) and
+Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and
 low computational overhead (high room density per physical host). Typical WebRTC architectures utilize a
 Selective Forwarding Unit (SFU) where each participant uploads one stream and receives $K-1$ downstream
 feeds from other participants. At scale, this places heavy download bandwidth and decoding overhead on
@@ -81,7 +81,8 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     \node[database, right=of coord, xshift=0.5cm] (mnesia) {Mnesia DB \\ (Local PVC)};
     % Grouping the Monolith Pod
     \begin{scope}[on background layer]
-        \node[draw, dashed, fill=gray!2, inner sep=15pt, fit=(n2o) (coord) (mnesia) (eturnal) (gst), label=above:\textbf{Isolated Monolith Pod}] (pod) {};
+        \node[draw, dashed, fill=gray!2, inner sep=15pt,
+              fit=(n2o) (coord) (mnesia) (eturnal) (gst), label=above:\textbf{Isolated Monolith Pod}] (pod) {};
     \end{scope}
     % Swapped S3 Storage position to far left to maintain planarity
     \node[ext, left=of gst, xshift=-0.5cm] (s3) {S3 Storage \\ (Scality Bucket)};
@@ -107,11 +108,17 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 \end{figure}
 
 \subsection{Ingress Sticky Routing \& Room Sharding}
-To scale the horizontal architecture to 1,000+ concurrent rooms, we bypass Erlang distribution. The Ingress proxy (Nginx or Envoy) parses the Room ID from the connection URI path (e.g., \texttt{/room/\{room\_id\}/signaling}) and maps it to a consistent target pod IP using a hash ring:
+
+To scale the horizontal architecture to 1,000+ concurrent rooms, we bypass Erlang distribution.
+The Ingress proxy (Nginx or Envoy) parses the Room ID from the connection URI path (e.g.,
+\texttt{/room/\{room\_id\}/signaling}) and maps it to a consistent target pod IP using a hash ring:
+
 \begin{equation}
 \text{Pod IP} = \text{Hash}(\text{room\_id}) \pmod P
 \end{equation}
+
 Where $P$ is the total count of running replicas. This ensures that:
+
 \begin{itemize}
     \item All participants (judges, witnesses, jury members) of a specific room land on the same pod.
     \item The room signaling pub/sub is fully handled in-memory locally using N2O.
@@ -120,10 +127,15 @@ Where $P$ is the total count of running replicas. This ensures that:
 \end{itemize}
 
 \subsection{WebRTC Signaling Loop \& C99 Port Protocol}
-The C99 GStreamer binary (\texttt{gst\_recorder}) is spawned as an OS process by the Erlang supervisor. Rather than linking against heavy socket libraries, it reads signaling data from \texttt{stdin} and outputs event payloads to \texttt{stdout}.
+
+The C99 GStreamer binary (\texttt{gst\_recorder}) is spawned as an OS process by the Erlang supervisor.
+Rather than linking against heavy socket libraries, it reads signaling data from \texttt{stdin} and outputs event payloads to \texttt{stdout}.
 
 \subsubsection{Protocol Stack and Specifications}
-The monolith interfaces utilize a diverse set of network and inter-process communication (IPC) protocols to coordinate signaling, manage media routing, and report client telemetry. Table~\ref{tab:protocols} provides a comprehensive description of each protocol, its transport layer, and operational parameters.
+The monolith interfaces utilize a diverse set of network and inter-process communication (IPC) protocols
+to coordinate signaling, manage media routing, and report client telemetry.
+Table~\ref{tab:protocols} provides a comprehensive description of each protocol,
+its transport layer, and operational parameters.
 
 \begin{table}[h]
 \centering
@@ -134,17 +146,18 @@ The monolith interfaces utilize a diverse set of network and inter-process commu
 Protocol & Layer / Port & Primary Data Formats & Functional Description \\
 \midrule
 \textbf{GST Port (IPC)} & stdin/stdout Pipes & Line-delimited JSON & Custom Erlang-to-C99 binary signaling exchange for SDP offers/answers and ICE candidates. \\
-\textbf{WS Signaling} & WSS / Port 8081 & Binary/Text over WebSocket & Cowboy/N2O room pub/sub channel for user joins, leaves, and chat logs. \\
-\textbf{WebRTC SDP} & Signaling Channel & SDP Text (RFC 8866) & Session negotiation declaring codecs (H.264/VP8/Opus) and media directions. \\
-\textbf{WebRTC ICE} & STUN/TURN (RFC 8489) & STUN Binding Attributes & Dynamic network connectivity probe establishing optimal media pathways. \\
-\textbf{TURN Relay} & UDP/TCP / Port 3478 & STUN/TURN Relayed Packets & Relays encrypted SRTP media packets through \texttt{eturnal} when NAT/firewalls block P2P. \\
-\textbf{SRTP / SRTCP} & UDP / Dynamic Ports & Encrypted RTP / RTCP (RFC 3711) & Transports secure real-time audio and video tracks between endpoints and GStreamer. \\
-\textbf{QoS Telemetry} & HTTPS/WSS / Port 8082 & OTLP JSON / Protobuf & Prioritized client connection statistics pumped to OpenTelemetry collector. \\
+\textbf{WS Signaling}   & WSS / Port 8081 & Binary/Text over WebSocket & Cowboy/N2O room pub/sub channel for user joins, leaves, and chat logs. \\
+\textbf{WebRTC SDP}     & Signaling Channel & SDP Text (RFC 8866) & Session negotiation declaring codecs (H.264/VP8/Opus) and media directions. \\
+\textbf{WebRTC ICE}     & STUN/TURN (RFC 8489) & STUN Binding Attributes & Dynamic network connectivity probe establishing optimal media pathways. \\
+\textbf{TURN Relay}     & UDP/TCP / Port 3478 & STUN/TURN Relayed Packets & Relays encrypted SRTP media packets through \texttt{eturnal} when NAT/firewalls block P2P. \\
+\textbf{SRTP / SRTCP}   & UDP / Dynamic Ports & Encrypted RTP / RTCP (RFC 3711) & Transports secure real-time audio and video tracks between endpoints and GStreamer. \\
+\textbf{QoS Telemetry}  & HTTPS/WSS / Port 8082 & OTLP JSON / Protobuf & Prioritized client connection statistics pumped to OpenTelemetry collector. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{Signaling Sequence Flow}
+
 Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, WebRTC negotiation, media composition, and session finalization.
 
 \begin{figure}[h]
@@ -173,11 +186,11 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
 
     % Step 2
     \node[draw, fill=yellow!10, text width=6cm, align=center, scale=0.8] at (6,-3) {GStreamer Init \& Base Pipeline Play};
-    
+
     % Step 3
     \draw[arrow] (4,-4) -- node[above, scale=0.8] {\{peer\_joined, "peer\_A"\}} (8,-4);
     \draw[arrow] (8,-4.5) -- node[above, scale=0.8] {stdin: \{"type":"peer\_joined","peer\_id":"peer\_A"\}} (12,-4.5);
-    
+
     % Step 4
     \draw[arrow] (12,-5.5) -- node[above, scale=0.8] {stdout: \{"type":"sdp\_offer","sdp":"..."\}} (8,-5.5);
     \draw[arrow] (8,-6) -- node[above, scale=0.8] {Forward Offer} (4,-6);
@@ -196,10 +209,17 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
 \end{figure}
 
 \subsection{Multipoint Media Composition Model}
+
 The GStreamer media broker executes video grid compositing and audio conferencing concurrently.
 
 \subsubsection{Video Matrix Grid Compositing}
-Incoming H.264/VP8 video packets are decoded into raw YUV frames. The compositor element (\texttt{mix}) maps each input stream index $i \in \{0, 1, 2, 3\}$ to a quadrant layout inside a unified 1080p canvas ($W_{\text{out}} = 1920$, $H_{\text{out}} = 1080$). The dimensions of each video frame are scaled to $w = 960$ and $h = 540$. The placement coordinates $(x_i, y_i)$ are formulated as:
+
+Incoming H.264/VP8 video packets are decoded into raw YUV frames.
+The compositor element (\texttt{mix}) maps each input stream index $i \in \{0, 1, 2, 3\}$ to
+a quadrant layout inside a unified 1080p canvas ($W_{\text{out}} = 1920$, $H_{\text{out}} = 1080$).
+The dimensions of each video frame are scaled to $w = 960$ and $h = 540$.
+The placement coordinates $(x_i, y_i)$ are formulated as:
+
 \begin{align}
 x_i &= (i \pmod 2) \cdot w \\
 y_i &= \lfloor i / 2 \rfloor \cdot h
@@ -216,16 +236,24 @@ The resulting video layout is composed as shown in Equation~\ref{eq:layout}:
 \end{equation}
 
 \subsubsection{Audio Mixing \& Summation}
-Audio tracks are mixed using GStreamer's \texttt{audiomixer} element. Incoming Opus packets are decoded into linear pulse-code modulated (LPCM) audio buffers. The mixed audio signal $S_{\text{mixed}}(t)$ at timestamp $t$ is the sum of the $K$ active participant signals:
+
+Audio tracks are mixed using GStreamer's \texttt{audiomixer} element.
+Incoming Opus packets are decoded into linear pulse-code modulated (LPCM) audio buffers.
+The mixed audio signal $S_{\text{mixed}}(t)$ at timestamp $t$ is the sum of the $K$ active participant signals:
+
 \begin{equation}
 S_{\text{mixed}}(t) = \sum_{i=1}^{K} S_i(t)
 \end{equation}
-To prevent digital clipping/overflow, the mixed LPCM buffer passes through a limiter/clipper stage before being re-encoded into Opus for WebRTC downstream broadcast:
+
+To prevent digital clipping/overflow, the mixed LPCM buffer passes through a limiter/clipper
+stage before being re-encoded into Opus for WebRTC downstream broadcast:
+
 \begin{equation}
 S_{\text{output}}(t) = \text{Clamp}(S_{\text{mixed}}(t), -S_{\text{max}}, S_{\text{max}})
 \end{equation}
 
 \section{Capacity Calculation, Telemetry \& SRE Metrics}
+
 Table~\ref{tab:codecs_mcu} specifies the streaming codec, resolution, and bitrates assumed in our capacity review.
 
 \begin{table}[h]
@@ -242,10 +270,17 @@ Output Recording (Composited) & H.264 (High Profile) via x264 & 1080p ($1920 \ti
 \end{tabular}
 \end{table}
 
-Under a standard Kubernetes pod boundary of \textbf{4 CPU Cores} and \textbf{4 GB RAM}, software-based x264 compositing is compute-bound, limiting pod capacity to \textbf{3 active mixing rooms} (each room mixer requiring $\approx 1.0$ Core). To scale to 50 active rooms, the cluster leverages Ingress-based sharding across \textbf{17 stateless replicas}. Offloading the x264 encoder to hardware-accelerated NVENC interfaces on GPU-enabled nodes (reducing per-room complexity to $0.40$ Cores) allows a single 20-Core pod to host all 50 rooms.
+Under a standard Kubernetes pod boundary of \textbf{4 CPU Cores} and \textbf{4 GB RAM},
+software-based x264 compositing is compute-bound, limiting pod capacity to \textbf{3 active mixing rooms} (each
+room mixer requiring $\approx 1.0$ Core). To scale to 50 active rooms, the cluster leverages
+Ingress-based sharding across \textbf{17 stateless replicas}. Offloading the x264 encoder
+to hardware-accelerated NVENC interfaces on GPU-enabled nodes (reducing per-room complexity
+to $0.40$ Cores) allows a single 20-Core pod to host all 50 rooms.
 
 \subsection{System Model \& Parameter Definitions}
-We model the monolithic node as a closed queuing system handling concurrent signaling channels, relayed network packets, and active video compositing pipelines.
+
+We model the monolithic node as a closed queuing system handling concurrent signaling channels,
+relayed network packets, and active video compositing pipelines.
 
 \subsubsection{Memory Allocation Model}
 The total memory consumption $M_{\text{total}}$ of the container is formulated as:
@@ -265,11 +300,15 @@ Where:
 \end{itemize}
 
 \subsubsection{CPU Utilization Model}
+
 The total CPU load $C_{\text{total}}$ (expressed in Cores) is defined as:
+
 \begin{equation}
 C_{\text{total}} = C_{\text{beam}}(N) + C_{\text{turn}}(T) + R \cdot C_{\text{gst}}(K)
 \end{equation}
+
 Where:
+
 \begin{itemize}
     \item $C_{\text{beam}}(N)$: CPU load of the BEAM signaling scheduler for $N$ users (highly linear: $1.5 \times 10^{-5}$ cores per active connection).
     \item $C_{\text{turn}}(T)$: CPU consumption of STUN/TURN packet forwarding, where $T$ is the throughput in Mbps (Network I/O bound).
@@ -277,18 +316,26 @@ Where:
 \end{itemize}
 
 \subsection{Computational Complexity of GStreamer Compositing}
+
 The computational load of GStreamer compositing is a function of incoming resolutions, frame rates, color-space conversions (YUV to RGB and vice-versa), and final compression encoding:
+
 \begin{equation}
 C_{\text{gst}}(K) = \sum_{i=1}^{K} D_i(W_i, H_i, F_i) + \Phi\left(\sum_{i=1}^{K} W_i \cdot H_i\right) + E(W_{\text{out}}, H_{\text{out}}, F_{\text{out}})
 \end{equation}
+
 Where:
+
 \begin{itemize}
     \item $D_i$: Decoding complexity of stream $i$ with width $W_i$, height $H_i$, and frame-rate $F_i$.
     \item $\Phi$: Grid scaling and pixel blending transformation complexity.
     \item $E$: Encoder complexity (e.g., x264 software encoding) for output width $W_{\text{out}}$ and height $H_{\text{out}}$.
 \end{itemize}
+
 \subsubsection{Media Workload Parameters}
-To model the CPU and network footprint, the standard streaming codecs, resolutions, and target bitrates for both incoming client WebRTC streams and the output composited recording stream are defined in Table~\ref{tab:codecs}.
+
+To model the CPU and network footprint, the standard streaming codecs, resolutions,
+and target bitrates for both incoming client WebRTC streams and the output composited
+recording stream are defined in Table~\ref{tab:codecs}.
 
 \begin{table}[h]
 \centering
@@ -304,34 +351,46 @@ Output Recording (Composited) & H.264 (High Profile) via x264 & 1080p ($1920 \ti
 \end{tabular}
 \end{table}
 
-For a standard court layout ($K = 4$ incoming streams at 720p @ 30fps composited into a single 1080p @ 30fps H.264 stream), the CPU core consumption without hardware acceleration (GPU/QuickSync) is calculated empirically as:
+For a standard court layout ($K = 4$ incoming streams at 720p @ 30fps composited into a
+single 1080p @ 30fps H.264 stream), the CPU core consumption without hardware
+acceleration (GPU/QuickSync) is calculated empirically as:
+
 \begin{equation}
 C_{\text{gst}}(4) \approx 0.15\text{ (Decoders)} + 0.20\text{ (Compositor)} + 0.65\text{ (x264 software encoder)} = 1.00\text{ Core}
 \end{equation}
 
 \subsection{Capacity Boundaries (4 Cores, 4 GB RAM)}
+
 Using the parameters defined above, we evaluate the maximum capacity limits of a single pod.
 
 \subsubsection{Scenario A: Idle Signaling \& TURN Relay}
+
 No GSreamer mixers. Given: $R = 0$, $N = 10,000$, $N_{\text{turn}} = 2,000$ (relaying 2~Gbps aggregate traffic).
+
 \begin{equation}
 M_{\text{total}} = 50\text{ MB} + (10,000 \cdot 2\text{ KB}) + (2,000 \cdot 10\text{ KB}) = 90\text{ MB}
 \end{equation}
 \begin{equation}
 C_{\text{total}} = 0.15\text{ Cores (Erlang)} + 0.80\text{ Cores (TURN Relay)} = 0.95\text{ Cores}
 \end{equation}
+
 Evaluation: The node is highly stable. RAM utilization is at $2.25\%$ and CPU is at $23.7\%$.
 
 \subsubsection{Scenario B: Active Recording \& Compositing}
+
 Given: $N = 1,000$, $N_{\text{turn}} = 100$, and $R$ active mixing rooms (4 inputs each).
+
 \begin{align*}
 M_{\text{total}} &= 50\text{ MB} + 2\text{ MB} + 1\text{ MB} + R \cdot 250\text{ MB} \le 4,000\text{ MB} \implies R \le 15.78\text{ Rooms} \\
 C_{\text{total}} &= 0.015\text{ Cores} + 0.04\text{ Cores} + R \cdot 1.00\text{ Cores} \le 4.00\text{ Cores} \implies R \le 3.94\text{ Rooms}
 \end{align*}
+
 Under standard CPU limits, the pod saturates at $R = 3$ active mixed rooms.
 
 \subsubsection{Target Scenario: Scaling to 50 Concurrent Rooms}
+
 To achieve the operational target of 50 concurrent active rooms, three architectural models are formulated:
+
 \begin{enumerate}
     \item \textbf{Vertical Monolith Node (Scale-Up)}: Host all 50 rooms inside a single monolithic VM/Pod container. Requires $M_{\text{total}} \approx 12.6$~GB RAM and $C_{\text{total}} \approx 50.1$~Cores. Requires a 52-Core / 16~GB RAM bare-metal server node.
     \item \textbf{Horizontal Scaling (Scale-Out)}: Distribute 50 rooms across $P$ isolated, independent Alpine Linux pods running on a 4-Core / 4~GB RAM boundary. Since $R_{\text{node}} = 3$, $P = \lceil 50 / 3 \rceil = 17$ Pod Replicas. Nodes operate as share-nothing instances without forming an Erlang cluster.
@@ -339,7 +398,9 @@ To achieve the operational target of 50 concurrent active rooms, three architect
 \end{enumerate}
 
 \subsubsection*{Extreme Scale Scenario: Scaling to 1000 Concurrent Rooms}
+
 At a massive scale of $R = 1,000$ active concurrent rooms (4,000 participants), resource calculations reveal severe hardware limits:
+
 \begin{itemize}
     \item \textbf{Memory Requirement}: 
     \begin{equation}
@@ -356,14 +417,32 @@ At a massive scale of $R = 1,000$ active concurrent rooms (4,000 participants), 
 \end{itemize}
 
 \subsection{Systems Soundness \& Liveness Analysis}
+
 \subsubsection*{HPA Oscillation (Thundering Herd)}
-Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU limits (e.g., 80\% target) creates severe scaling instabilities. When $R$ goes from $1 \to 3$, CPU spikes from $26\% \to 80\%$, triggering replica creation. Because Erlang cluster state is localized on each pod, the new replica registers, but since incoming signaling sockets do not balance instantly, the CPU spike persists on the first node, prompting further HPA scale-ups until replica bounds are hit. The scaling algorithm must utilize custom metrics mapped to active GStreamer mixers (\texttt{active\_gst\_mixers}) instead of generic system CPU metrics.
+
+Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU
+limits (e.g., 80\% target) creates severe scaling instabilities.
+When $R$ goes from $1 \to 3$, CPU spikes from $26\% \to 80\%$, triggering replica creation.
+Because Erlang cluster state is localized on each pod, the new replica registers,
+but since incoming signaling sockets do not balance instantly, the CPU spike
+persists on the first node, prompting further HPA scale-ups until replica bounds are hit.
+The scaling algorithm must utilize custom metrics mapped to active GStreamer
+mixers (\texttt{active\_gst\_mixers}) instead of generic system CPU metrics.
 
 \subsubsection*{Local Database Isolation (No Database Clustering)}
-Under the isolated pod model, Mnesia runs strictly as a local persistent storage database inside each pod's local directory (persisted via Kubernetes PVC on Alpine Linux). Because Erlang nodes do not form a cluster, all database transaction locking, schema updates, and state operations are restricted to the local node. This completely avoids split-brain partitions, node discovery synchronization issues, and cluster-wide database deadlocks during HPA scaling, ensuring high reliability and simplified operations.
+
+Under the isolated pod model, Mnesia runs strictly as a local persistent storage database
+inside each pod's local directory (persisted via Kubernetes PVC on Alpine Linux).
+Because Erlang nodes do not form a cluster, all database transaction locking, schema updates,
+and state operations are restricted to the local node. This completely avoids split-brain partitions,
+node discovery synchronization issues, and cluster-wide database deadlocks during HPA scaling,
+ensuring high reliability and simplified operations.
 
 \subsubsection*{Scale-Out Architecture Bottlenecks at 1000+ Rooms}
-When scaling the cluster horizontally to support $R = 1,000$ active rooms across $\approx 333$ replicas of 4-Core pods, three critical infrastructure bottlenecks emerge:
+
+When scaling the cluster horizontally to support $R = 1,000$ active rooms
+across $\approx 333$ replicas of 4-Core pods, three critical infrastructure bottlenecks emerge:
+
 \begin{enumerate}
     \item \textbf{Erlang Distribution Overhead Bypassed}: By routing all room participants to the same pod via Ingress Sticky Session hashing, signaling is fully handled locally in-memory. Consequently, the Erlang distribution mechanism is completely disabled (the nodes run with \texttt{-no\_distribution}), totally avoiding the quadratic $O(P^2)$ connection storm ($\approx 110,000$ links at $P=333$ replicas) and ensuring that pods remain as isolated Alpine Linux containers.
     \item \textbf{Mnesia Transaction Locking Isolated}: Since Mnesia runs as a purely local database on each isolated pod (with local folder persistence on Alpine Linux), transaction lock contention is strictly confined to the local node's processes. This eliminates distributed two-phase commit latency (RTT replication delays) and prevents cluster-wide Mnesia transaction deadlocks.
@@ -377,7 +456,7 @@ introduces a severe compute limit, capping density at 3 rooms per pod on a 4-Cor
 Transitioning to hardware-accelerated transcoding (NVENC/VAAPI) or partitioning media processing
 to dedicated GPU nodes is required to increase room density.
 
-The \texttt{rtp-monolith} architecture demonstrates that video conferencing signaling and media
+The \texttt{rtp} architecture demonstrates that video conferencing signaling and media
 composting can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice
 networks and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions,
 the system avoids cluster synchronization locks and mesh overhead. This provides a highly resilient,

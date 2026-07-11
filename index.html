@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Zencrypted RTP – GStreamer MCU recording pipeline" />
+  <meta name="author" content="tonpa" />
+  <title>Zencrypted RTP</title>
+  <!-- Styles inspired by SYNRC/N2O index pages -->
+  <link rel="stylesheet" href="https://n2o.dev/blank.css?x=15" />
+  <link rel="stylesheet" href="https://n2o.dev/zima.css?x=15" />
+  <link rel="shortcut icon" type="image/x-icon" href="img/favicon.ico" />
+</head>
+<body>
+<nav>
+  <a href="https://github.com/tonpa/zencrypted-rtp">GitHub</a>
+  <a href="README.md" style="background:#ededed;">README</a>
+</nav>
+<header>
+  <a href="https://github.com/zencrypted/rtp"> <img src="https://n2o.dev/img/E248.svg"/></a>
+  <h1>RTP</h1>
+</header>
+<main>
+  <section>
+    <h3>Overview</h3>
+    <p>This project provides a GStreamer‑based MCU that receives multiple WebRTC streams, composes them into a 2×2 video grid, mixes audio, and records the result as an MP4 file.</p>
+  </section>
+  <section>
+    <h3>Features</h3>
+    <ul>
+      <li>Dynamic peer handling via Erlang signalling</li>
+      <li>2 × 2 video grid layout (extendable)</li>
+      <li>Audio mixing with <code>audiomixer</code></li>
+      <li>MP4 recording via <code>mp4mux</code></li>
+    </ul>
+  </section>
+  <section>
+    <h3>Getting Started</h3>
+    <figure><code> 1> application:which_applications().
+[{rtp,"Unified WebRTC Video chat rooms & signaling monolith","0.1.0"},
+ {mnesia,"MNESIA  CXC 138 12","4.26.1"},
+ {eturnal,"STUN/TURN server","1.12.0"},
+ {stun,"STUN and TURN library for Erlang / Elixir","1.2.9"},
+ {fast_tls,"TLS / SSL OpenSSL-based native driver for Erlang / Elixir","1.1.16"},
+ {conf,"YAML configuration for Erlang applications","0.2.6"},
+ {yval,"YAML validator","1.0.10"},
+ {fast_yaml,"Fast YAML native library for Erlang / Elixir","1.0.40"},
+ {p1_utils,"Erlang utility modules from ProcessOne","1.0.25"},
+ {syn,"A scalable global Process Registry and Process Group manager.","3.4.2"},
+ {kvs,"KVS Abstract Chain Database","9.4.1"},
+ {nitro,"NITRO Nitrogen Web Framework","7.10.0"},
+ {n2o,"N2O MQTT TCP WebSocket","10.3.3"},
+ {websock_adapter,"A set of WebSock adapters for common web servers","0.5.9"},
+ {bandit,"A pure-Elixir HTTP server built for Plug & WebSock apps","1.12.0"},
+ {hpax,"Implementation of the HPACK protocol (RFC 7541) for Elixir","1.0.4"},
+ {websock,"A specification for WebSocket connections","0.5.3"},
+ {plug,"Compose web applications with functions","1.20.3"},
+ {plug_crypto,"Crypto-related functionality for the web","2.1.1"},
+ {mime,"A MIME type module for Elixir","2.0.7"},
+ {eex,"eex","1.20.2"},
+ {thousand_island,"A simple & modern pure Elixir socket server","1.5.0"},
+ {telemetry,"Dynamic dispatching library for metrics and instrumentations","1.4.2"},
+ {logger,"logger","1.20.2"},
+ {elixir,"elixir","1.20.2"},
+ {compiler,"ERTS  CXC 138 10","10.0.1"},
+ {inets,"INETS  CXC 138 49","9.7.1"},
+ {ssl,"Erlang/OTP SSL application","11.7.2"},
+ {public_key,"Public key infrastructure","1.21.2"},
+ {asn1,"The Erlang ASN1 compiler version 5.5","5.5"},
+ {crypto,"CRYPTO","5.9"},
+ {stdlib,"ERTS  CXC 138 10","8.0.1"},
+ {kernel,"ERTS  CXC 138 10","11.0.2"}]
+</code></figure>
+    <figure><code> rebar3 get-deps && rebar3 shell
+ ./c_src/gst &lt; output.mp4
+</code></figure>
+  <br>
+  </section>
+  <br>
+</main>
+<footer>
+  <p>© 2026 5HT</p>
+</footer>
+</body>
+</html>

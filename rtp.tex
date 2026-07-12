@@ -39,7 +39,7 @@ connections and reduces media encoding resource requirements by over 60\% when h
 
 Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and
 low computational overhead (high room density per physical host). Typical WebRTC architectures utilize a
-Selective Forwarding Unit (SFU) where each participant uploads one stream and receives $K-1$ downstream
+Selective Forwarding Unit (SFU) where each participant uploads one stream and receives ${K-1}$ downstream
 feeds from other participants. At scale, this places heavy download bandwidth and decoding overhead on
 client browsers, especially for low-powered endpoint terminals.
 
@@ -62,8 +62,6 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 
 \begin{figure}[htbp]
 \centering
-
-
 \begin{tikzpicture}
 [
     % ── Node styles ──────────────────────────────────────────────────────────────
@@ -95,7 +93,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     % Right col: N2O (y=0.0)      / Coord   (y=−1.5)
 
     \node[block] (gst)     at (0.58,  0.37) {C99 GStreamer \\ (gst\_recorder)};
-    \node[block] (eturnal) at (0.59, -1.16) {eturnal TURN \\ (Port 3478)};
+    \node[block] (eturnal) at (1.59, -1.16) {eturnal TURN \\ (Port 3478)};
     \node[block] (n2o)     at (6.02, -0.07) {N2O Gateway \\ (Port 8081)};
     \node[block] (coord)   at (4.89, -1.9)  {Room Coordinator \\ (GenServer)};
     \draw[dashed, gray!50, line width=1pt, rounded corners=6pt] (-2.02, -2.6) rectangle (8.31, 1.1);

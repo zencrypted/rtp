@@ -8,9 +8,9 @@
 
 \title{\textbf{A Minimal MCU Gateway \\
                for High-Density Video Conferencing \\
-               on Alpine Linux in Kubernetes}}
-
-\author{\textbf{Zen Crypted X.422.2 SRTP/SRTCP} \\ Namdak Tonpa}
+               on Alpine Linux in Kubernetes} \\ [1ex]
+       {\LARGE Zen Crypted X.422.2 SRTP/SRTCP}}
+\author{Namdak Tonpa, CTO of Zen Crypted}
 \date{\today}
 
 \begin{document}
@@ -63,6 +63,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 \begin{figure}[htbp]
 \centering
 
+
 \begin{tikzpicture}
 [
     % ── Node styles ──────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 
     % ── erp-infra namespace ───────────────────────────────────────────────────────
     \node[iblock] (ingress) at (0.68, 3.0) {Traefik Ingress \\ (Sticky Session)};
-    \draw[dashed, violet!50, line width=1pt, rounded corners=6pt] (-2.02, 2.08) rectangle (8.29, 4.22);
+    \draw[dashed, violet!50, line width=1pt, rounded corners=6pt] (-2.02, 2.1) rectangle (8.29, 4.24);
     \node[anchor=north east, font=\footnotesize\bfseries\color{violet!70}] at (5.01, 4.12) {erp-infra};
 
     % ── erp-rtp namespace ─────────────────────────────────────────────────────────
@@ -104,16 +105,16 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     \node[client] (browser) at (-5.5, -0.75) {\textbf{SPA PWA} \\ (N2O.JS)};
 
     % ── erp-infra → erp-rtp: Traefik feeds N2O ───────────────────────────────────
-    \draw[iarrow, ->] (ingress.south east) to[out=300, in=50] node[right=10pt, font=\tiny, pos=0.5]{} (n2o.north);
-    \draw[iarrow, ->] (n2o) to[out=-60, in=90] (5.5,-1.45);
+    \draw[iarrow, ->] (ingress.east) to[out=0, in=90] node[right=10pt, font=\tiny, pos=0.5]{} (n2o.north);
+    \draw[iarrow, ->] (n2o) to[out=269, in=90] (coord.north);
 
     % ── Client → namespaces: 3-anchor fan ────────────────────────────────────────
     % browser.north → Traefik  (steep upward arc, WSS/HTTPS)
     \draw[arrow, <->] (browser.north) to[out=90, in=180] node[left=10pt, font=\tiny, pos=0.5] {WSS / HTTPS} (ingress.west);
 
     % browser.north east → GStreamer  (gentle upward, WebRTC SRTP)
-    \draw[arrow, <->] (browser.north east) to[out=451, in=46] node[above=7pt, font=\tiny, very near start, pos=0.5] {WebRTC SRTP} (gst.west);
-    \draw[arrow, <->] (coord.north) to[out=79, in=228] node[above=7pt, font=\tiny, very near start, pos=0.5] {WebRTC SRTP} (gst.south east);
+    \draw[arrow, <->] (browser.north east) to[out=60, in=141] node[above=7pt, font=\tiny, very near start, pos=0.5] {WebRTC SRTP} (gst.west);
+    \draw[arrow, <->] (coord.north west) to[out=89, in=3] node[right=10pt, font=\tiny, pos=0.8] {WebRTC SRTP} (gst.east);
 
     % browser.south east → eturnal  (gentle downward, STUN/TURN)
     \draw[arrow, <->] (browser.south east) to[out=297, in=267] node[below=7pt, font=\tiny, pos=0.5] {STUN/TURN} (eturnal.south west);
@@ -139,7 +140,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     \draw[tarrow, ->] (eturnal.south) to[out=-90, in=140]  (rtptel.north west);
     \draw[tarrow, ->] (gst.south west) to[out=199, in=148] (rtptel.west);
     \draw[tarrow, ->] (browser.south) to[out=270, in=180] (rtptel.south west);
-    \draw[tarrow, ->] (coord.south) to[out=230, in=57] (rtptel.north east);
+    \draw[tarrow, ->] (coord.south) to[out=219, in=27] (rtptel.north east);
 
     % ── Internal erp-telemetry pipeline ──────────────────────────────────────────
     \draw[tarrow, ->] (rtptel.south) -- (otel.north);

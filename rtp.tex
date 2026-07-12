@@ -6,10 +6,10 @@
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
 
-\title{\textbf{A Minimal MCU Gateway \\
+\title{\textbf{A Minimal X.600 MCU Gateway \\
                for High-Density Video Conferencing \\
                on Alpine Linux in Kubernetes} \\ [1ex]
-       {\LARGE Zen Crypted X.422.2 SRTP/SRTCP}}
+       {\LARGE For Zen Crypted X.422 Budda Protocol}}
 \author{Namdak Tonpa, CTO of Zen Crypted}
 \date{\today}
 
@@ -204,6 +204,53 @@ Protocol                & Port       & STD      & Format    & Functional Descrip
 \end{tabular}
 }
 \end{table}
+
+\subsubsection{JSON Replacement Strategy on Existing Connections}
+\label{sec:json-replacement}
+
+The current implementation uses JSON for several high-frequency control and signaling paths.
+We propose replacing these with structured binary formats based on relevant ITU-T X-series
+Recommendations (from \texttt{synrc.com/standards.txt}), particularly the multi-peer, group, and managed P2P frameworks.
+
+\begin{table}[h]
+\centering
+\caption{JSON Replacement Using ITU-T X-Series Standards}
+\label{tab:json-replacement}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lll}
+\toprule
+Port & Current Format & Applicable ITU-T X-Recommendation(s) \\
+\midrule
+8081 & JSON (N2O)  & X.601 (Multi-peer framework), X.602 (Group management), X.609.x (Managed P2P) \\
+Unix & Ad-hoc JSON & X.603 / X.603.1 / X.603.2 (Relayed multicast), X.609.3 / X.609.4 (streaming signalling/peer) \\
+8082 & JSON/OTLP   & X.609.8 / X.609.10 (Live data sources \& data streaming signalling) \\
+Room & JSON events & X.601 / X.602 (Multi-peer \& group management) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\paragraph{Selected ITU-T X-Stack Standards}
+The following recommendations from the X-series provide a formal framework for group video conferencing:
+\begin{itemize}
+    \item \textbf{X.601} — Multi-peer communications framework
+    \item \textbf{X.602} — Group management protocol
+    \item \textbf{X.603 / X.603.1 / X.603.2} — Relayed multicast protocol (simplex / N-plex)
+    \item \textbf{X.604 / X.604.1 / X.604.2} — Mobile multicast communications
+    \item \textbf{X.605 -- X.608.1} — Enhanced Communications Transport Service (ECTS) for multicast
+    \item \textbf{X.609 -- X.609.10} — Managed peer-to-peer (P2P) communications (especially X.609.3 / X.609.4 for multimedia streaming signalling and peer protocols)
+\end{itemize}
+
+\paragraph{Implementation Approach in \texttt{zencrypted/rtp}}
+\begin{enumerate}
+    \item Define signaling and control PDUs using ASN.1 (X.680) modules that align with the semantics of X.601 / X.609.x.
+    \item Use N2O's ASN.1 formatter to replace JSON on WebSocket connections (Port 8081).
+    \item Extend the C99 GStreamer port (\texttt{gst.c}) to use binary messages (inspired by X.603 relayed multicast and X.609.4 peer protocols) over stdin/stdout.
+    \item For telemetry and room events, adopt structures from X.609.8 / X.609.10.
+    \item Retain RTP/SRTP for the media plane (already ITU-aligned via RFC 3550).
+\end{enumerate}
+
+ Expected outcomes: significantly reduced signaling overhead, formal compliance with ITU-T multi-peer frameworks, and improved scalability for high-density rooms.
 
 \subsubsection{Detailed Protocol Descriptions}
 

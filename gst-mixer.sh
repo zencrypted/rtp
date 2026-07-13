@@ -19,3 +19,5 @@ fi
 
 # Run the mixer
 exec "$BIN" "$OUT_FILE"
+
+# open -a "Google Chrome" --args --use-fake-device-for-media-stream --use-fake-ui-for-media-stream http://localhost:8888

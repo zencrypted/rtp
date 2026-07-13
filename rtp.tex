@@ -39,19 +39,13 @@ connections and reduces media encoding resource requirements by over 60\% when h
 \newpage
 \section{Introduction}
 
-Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and
-low computational overhead (high room density per physical host). Typical WebRTC architectures utilize a
-Selective Forwarding Unit (SFU) where each participant uploads one stream and receives ${K-1}$ downstream
-feeds from other participants. At scale, this places heavy download bandwidth and decoding overhead on
-client browsers, especially for low-powered endpoint terminals.
+Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and low computational overhead (high room density per physical host). The critical importance of robust, low-latency communication infrastructure was demonstrated globally in March 2020, when pandemic lockdowns forced entire institutions online. Overnight, daily meeting participants on platforms like Zoom skyrocketed from 10 million to 300 million, Google Meet traffic crossed 100 million daily users, and Microsoft Teams usage grew by 894\% \cite{seanslabwebrtc}. Rather than a triumph of ad-hoc application engineering, this massive scale was made possible by the standardization of WebRTC (Web Real-Time Communication), which enabled browsers to capture, encrypt, and stream real-time audio and video peer-to-peer with sub-second latency.
 
-To address this, we implement a Multipoint Control Unit (MCU) model, where the server decodes all
-incoming streams, mixes the audio signals, composites the video tracks into a unified grid matrix,
-and broadcasts a single combined stream back to the clients. This reduces client-side complexity to $O(1)$.
+The origin of WebRTC dates back to Stockholm in 1999 with the founding of Global IP Solutions (GIPS) by signal processing researchers Roar Hagen, Bastiaan Kleijn, Espen Fjogstad, and Ivar T. Hognestad \cite{seanslabwebrtc}. GIPS identified that VoIP quality over packet-switched networks was primarily a signal processing problem rather than a networking issue, combatting packet loss, jitter, clock drift, and acoustic echo using adaptive algorithms. They developed legendary narrowband and wideband codecs like iLBC (RFC 3951) and iSAC, along with advanced media engines for acoustic echo cancellation (AEC), noise suppression, and automatic gain control (AGC). Licensing their software to Yahoo!, AOL, Cisco WebEx, and Google Talk, GIPS became the industry reference stack.
 
-To minimize server-side overhead (which traditionally relies on heavy headless browsers like Chromium
-to capture grid layouts), we present a C99 GStreamer-based MCU integrated directly into a share-nothing
-Erlang/OTP monolith pod running on Alpine Linux.
+In May 2010, Google acquired GIPS for \$68.2 million, and subsequently open-sourced the entire engine on May 31, 2011, under the leadership of Harald Alvestrand and Justin Uberti \cite{seanslabwebrtc}. This open-source release formed the technical foundation for the dual-track standardization process: the W3C WebRTC Working Group (defining the client JavaScript API) and the IETF RTCWeb Working Group (defining the underlying protocols). The subsequent decade saw intense engineering battles, including the Mandatory To Implement (MTI) video codec war between Google's royalty-free VP8 codec and the telecom industry's H.264 standard, culminating in the 2014 compromise to support both codecs. This was followed by the Session Description Protocol (SDP) negotiation debates, leading to Microsoft's brief ORTC (Object RTC) implementation in Edge and the eventual hybrid APIs adopted in WebRTC 1.0.
+
+Typical WebRTC architectures utilize a Selective Forwarding Unit (SFU) where each participant uploads one stream and receives ${K-1}$ downstream feeds from other participants. At scale, this places heavy download bandwidth and decoding overhead on client browsers, especially for low-powered endpoint terminals. To address this, we implement a Multipoint Control Unit (MCU) model, where the server decodes all incoming streams, mixes the audio signals, composites the video tracks into a unified grid matrix, and broadcasts a single combined stream back to the clients. This reduces client-side complexity to $O(1)$. To minimize server-side overhead (which traditionally relies on heavy headless browsers like Chromium to capture grid layouts), we present a C99 GStreamer-based MCU integrated directly into a share-nothing Erlang/OTP monolith pod running on Alpine Linux.
 
 \newpage
 \section{System Architecture}
@@ -544,6 +538,18 @@ W3C Recommendation.
 \newblock WebRTC 1.0: Real-Time Communication Between Browsers.
 \newblock W3C, January 2021.
 \newblock Available online: \url{https://www.w3.org/TR/webrtc/}.
+
+\bibitem{openwebrtc}
+Ålund, S., and Ericsson Research.
+\newblock OpenWebRTC: Transcend the Browser.
+\newblock Ericsson Research Blog, September 2014.
+\newblock Available online: \url{https://github.com/EricssonResearch/openwebrtc}.
+
+\bibitem{seanslabwebrtc}
+DuBois, S.
+\newblock WebRTC: The Protocol That Made the Browser a Phone.
+\newblock Sean's Lab Blog, April 2026.
+\newblock Available online: \url{https://seanslab.org/posts/webrtc-the-protocol-that-made-the-browser-a-phone}.
 
 \bibitem{xt601}
 ITU-T Recommendation X.601.

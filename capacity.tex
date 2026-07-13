@@ -1,0 +1,110 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{siunitx}
+
+\title{\textbf{Resource Provisioning Analysis for Large-Scale GStreamer MCU Video Mixing}}
+\author{Technical Capacity Assessment}
+\date{July 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Executive Summary}
+This analysis evaluates the hardware capacity for \textbf{1,000 concurrent MCU rooms} using \textbf{GStreamer} pipelines in MCU mode (real-time decoding, compositing, scaling, and encoding of multiple 720p streams into single 1080p outputs), with GPU acceleration (NVIDIA NVENC/CUDA) and lower DDR4 memory configurations.
+
+\begin{itemize}
+    \item 80\% (800 rooms): 6-participant rooms
+    \item 20\% (200 rooms): 20-participant rooms
+\end{itemize}
+
+The proposed cluster consists of \textbf{40 nodes} (20 Small + 20 Big) and comfortably supports the workload with headroom.
+
+\section{Node Specifications}
+
+\begin{table}[htbp]
+\centering
+\caption{Node Types and Specifications (GPU-Accelerated, Lower DDR4)}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Component} & \textbf{Small Node (6-person)} & \textbf{Big Node (20-person)} \\
+\midrule
+\textbf{Target Use} & 6-participant rooms & 20-participant rooms \\
+\textbf{CPU} & Single Xeon Silver/Gold (16--24 cores) & Dual Xeon Gold/Platinum (32--64+ cores) \\
+\textbf{RAM} & 64--96\,GB DDR4 & 128\,GB DDR4 \\
+\textbf{GPU} & 1 $\times$ Mid-High NVIDIA (e.g., RTX 4090 / A10 class) & 2 $\times$ High-End NVIDIA (e.g., A40 / L40S class) \\
+\textbf{Network} & 25--40\,Gbps & 40--100\,Gbps \\
+\textbf{Storage} & 256\,GB NVMe SSD & 512\,GB NVMe SSD \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\section{Per-Node Capacity (GStreamer MCU)}
+
+\begin{table}[htbp]
+\centering
+\caption{Real-Time Capacity per Node}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Small Node} & \textbf{Big Node} \\
+\midrule
+\textbf{Rooms per Node} & 45 & 12 \\
+\textbf{Input Streams per Node} & $\approx$ 270 & $\approx$ 240 \\
+\textbf{Output Streams per Node} & 45 & 12 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\section{Cluster Capacity with 20 Small + 20 Big Nodes}
+
+\begin{table}[htbp]
+\centering
+\caption{Total Cluster Capacity}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Category} & \textbf{Small Nodes (20)} & \textbf{Big Nodes (20)} & \textbf{Total / Headroom} \\
+\midrule
+\textbf{6-Person Rooms} & 900 & - & 900 (\textbf{+100 headroom}) \\
+\textbf{20-Person Rooms} & - & 240 & 240 (\textbf{+40 headroom}) \\
+\textbf{Max Mixed Rooms} & - & - & \textbf{1,140} \\
+\textbf{Target Workload} & 800 & 200 & \textbf{1,000 (covered with 14\% headroom)} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\section{Resource Totals}
+
+\begin{table}[htbp]
+\centering
+\caption{Cluster-Wide Resource Summary}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lr}
+\toprule
+\textbf{Resource} & \textbf{Total} \\
+\midrule
+Total Nodes & 40 \\
+Total DDR4 RAM & $\approx$ 3.8--4.2\,TB \\
+Total NVIDIA GPUs & 60 \\
+Estimated Peak Power & High (GPU-heavy) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\section{Conclusions and Recommendations}
+The proposed 40-node heterogeneous cluster provides robust capacity for 1,000 concurrent GStreamer MCU rooms under GPU acceleration. Headroom supports maintenance, traffic spikes, and additional features (e.g., recording). 
+
+Future work may include dynamic auto-scaling, detailed pipeline profiling with \texttt{gst-debug}, and power-efficiency analysis.
+
+\end{document}

@@ -6,19 +6,17 @@
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
 
-\title{\textbf{A Minimal MCU Gateway in 40KB \\
+\title{\textbf{A Minimal MCU Gateway \\ of ANSI C99 with GStreamer \\
                for High-Density Video Conferencing \\
-               on Alpine Linux in Kubernetes} \\ [1ex]
-       {\LARGE For Zen Crypted X.422 Buddha Protocol}}
+               on Erlang/OTP Control Plane \\
+               in Alpine Linux under Kubernetes} \\ [1ex]
+       {\LARGE Part of Zen Crypted X.422 Buddha Protocol}}
 \author{Namdak Tonpa, Zen Crypted}
 \date{\today}
 
 \begin{document}
 
 \maketitle
-\tableofcontents
-
-\newpage
 
 \begin{abstract}
 This paper presents the architectural design, implementation, and systems capacity review of \texttt{rtp},
@@ -35,6 +33,10 @@ standard input and output pipes. We show that this model supports up to 10,000 c
 connections and reduces media encoding resource requirements by over 60\% when hardware-accelerated.
 \end{abstract}
 
+\newpage
+\tableofcontents
+
+\newpage
 \section{Introduction}
 
 Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and
@@ -92,7 +94,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     % Left col: GStreamer (y=0.0) / eturnal (y=−1.5)
     % Right col: N2O (y=0.0)      / Coord   (y=−1.5)
 
-    \node[block] (gst)     at (0.58,  0.37) {C99 GStreamer \\ (gst\_recorder)};
+    \node[block] (gst)     at (0.58,  0.37) {C99 GStreamer \\ (gst)};
     \node[block] (eturnal) at (1.59, -1.16) {eturnal TURN \\ (Port 3478)};
     \node[block] (n2o)     at (6.02, -0.07) {N2O Gateway \\ (Port 8081)};
     \node[block] (coord)   at (4.89, -1.9)  {Room Coordinator \\ (GenServer)};
@@ -172,7 +174,7 @@ Where $P$ is the total count of running replicas. This ensures that:
 
 \subsection{WebRTC Signaling Loop \& C99 Port Protocol}
 
-The C99 GStreamer binary (\texttt{gst\_recorder}) is spawned as an OS process by the Erlang supervisor.
+The C99 GStreamer binary (\texttt{gst}) is spawned as an OS process by the Erlang supervisor.
 Rather than linking against heavy socket libraries, it reads signaling data from \texttt{stdin} and outputs event payloads to \texttt{stdout}.
 
 \subsubsection{Protocol Stack and Specifications}
@@ -279,18 +281,18 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
     \draw[line] (0,0) -- (0,-10) node[below] {Browser Client};
     \draw[line] (4,0) -- (4,-10) node[below] {Cowboy / N2O};
     \draw[line] (8,0) -- (8,-10) node[below] {media\_broker\_srv};
-    \draw[line] (12,0) -- (12,-10) node[below] {gst\_recorder (C99)};
+    \draw[line] (12,0) -- (12,-10) node[below] {gst (C99)};
 
     % Headings
     \node[above] at (0,0) {\textbf{Browser Client}};
     \node[above] at (4,0) {\textbf{Cowboy / N2O}};
     \node[above] at (8,0) {\textbf{media\_broker\_srv}};
-    \node[above] at (12,0) {\textbf{gst\_recorder}};
+    \node[above] at (12,0) {\textbf{gst}};
 
     % Step 1
     \draw[arrow] (0,-1) -- node[above, scale=0.8] {WS Connect (room\_1)} (4,-1);
     \draw[arrow] (4,-1.5) -- node[above, scale=0.8] {start\_mixing(room\_1)} (8,-1.5);
-    \draw[arrow] (8,-2) -- node[above, scale=0.8] {open\_port("gst\_recorder /tmp/r1.mp4")} (12,-2);
+    \draw[arrow] (8,-2) -- node[above, scale=0.8] {open\_port("gst /tmp/r1.mp4")} (12,-2);
 
     % Step 2
     \node[draw, fill=yellow!10, text width=6cm, align=center, scale=0.8] at (6,-3) {GStreamer Init \& Base Pipeline Play};
@@ -509,5 +511,70 @@ When scaling the cluster horizontally to support $R = 1,000$ active rooms across
 The proposed monolithic architecture is highly sound for large-scale signaling and STUN/TURN routing, easily supporting over 10,000 concurrent user events. However, software-based video compositing introduces a severe compute limit, capping density at 3 rooms per pod on a 4-Core boundary. Transitioning to hardware-accelerated transcoding (NVENC/VAAPI) or partitioning media processing to dedicated GPU nodes is required to increase room density.
 
 The \texttt{rtp} architecture demonstrates that video conferencing signaling and media composting can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective SRE model for secure networks.
+
+\begin{thebibliography}{99}
+
+\bibitem{rfc3264}
+Rosenberg, J., and Schulzrinne, H.
+\newblock An Offer/Answer Model with the Session Description Protocol (SDP).
+\newblock Internet Engineering Task Force (IETF), RFC 3264, June 2002.
+
+\bibitem{rfc3550}
+Schulzrinne, H., Casner, S., Frederick, R., and Jacobson, V.
+\newblock RTP: A Transport Protocol for Real-Time Applications.
+\newblock Internet Engineering Task Force (IETF), RFC 3550, STD 64, July 2003.
+
+\bibitem{rfc3711}
+Baugher, M., McGrew, D., Naslund, E., Carrara, E., and Norrman, K.
+\newblock The Secure Real-time Transport Protocol (SRTP).
+\newblock Internet Engineering Task Force (IETF), RFC 3711, March 2004.
+
+\bibitem{rfc8445}
+Keranen, A., Mutabozi, E., and Melnikov, A.
+\newblock Interactive Connectivity Establishment (ICE): A Protocol for Network Address Translator (NAT) Traversal.
+\newblock Internet Engineering Task Force (IETF), RFC 8445, October 2018.
+
+\bibitem{rfc8829}
+Jennings, C., Bostrom, H., and Bruaroey, J.-I.
+\newblock JavaScript Session Establishment Protocol (JSEP).
+\newblock Internet Engineering Task Force (IETF), RFC 8829, January 2021.
+
+\bibitem{w3cwebrtc}
+W3C Recommendation.
+\newblock WebRTC 1.0: Real-Time Communication Between Browsers.
+\newblock W3C, January 2021.
+\newblock Available online: \url{https://www.w3.org/TR/webrtc/}.
+
+\bibitem{xt601}
+ITU-T Recommendation X.601.
+\newblock Information technology - Multi-peer communications framework.
+\newblock International Telecommunication Union, 2000.
+
+\bibitem{xt602}
+ITU-T Recommendation X.602.
+\newblock Information technology - Group management protocol.
+\newblock International Telecommunication Union, 2001.
+
+\bibitem{xt609}
+ITU-T Recommendation X.609.
+\newblock Managed peer-to-peer communications.
+\newblock International Telecommunication Union, 2010.
+
+\bibitem{marier2020}
+Marier, F.
+\newblock Peer-to-peer video conferencing using GStreamer and WebRTC.
+\newblock Available online: \url{https://feeding.cloud.geek.nz/posts/peer-to-peer-video-conferencing-using/}, 2020.
+
+\bibitem{toradexgst}
+Toradex Developer Center.
+\newblock Video Processing with GStreamer on Linux.
+\newblock Available online: \url{https://developer.toradex.com/software/linux-resources/multimedia/video-processing-gstreamer/}, 2026.
+
+\bibitem{erpsre}
+Synrc Research.
+\newblock SRE Handbook: Operational Practices \& Topology.
+\newblock Available online: \url{https://cd.erp.uno/sre.pdf}, 2026.
+
+\end{thebibliography}
 
 \end{document}

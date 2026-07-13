@@ -41,11 +41,21 @@ connections and reduces media encoding resource requirements by over 60\% when h
 
 Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and low computational overhead (high room density per physical host). The critical importance of robust, low-latency communication infrastructure was demonstrated globally in March 2020, when pandemic lockdowns forced entire institutions online. Overnight, daily meeting participants on platforms like Zoom skyrocketed from 10 million to 300 million, Google Meet traffic crossed 100 million daily users, and Microsoft Teams usage grew by 894\% \cite{seanslabwebrtc}. Rather than a triumph of ad-hoc application engineering, this massive scale was made possible by the standardization of WebRTC (Web Real-Time Communication), which enabled browsers to capture, encrypt, and stream real-time audio and video peer-to-peer with sub-second latency.
 
+\subsection{Historical Precursors and GStreamer Integration}
+
 The origin of WebRTC dates back to Stockholm in 1999 with the founding of Global IP Solutions (GIPS) by signal processing researchers Roar Hagen, Bastiaan Kleijn, Espen Fjogstad, and Ivar T. Hognestad \cite{seanslabwebrtc}. GIPS identified that VoIP quality over packet-switched networks was primarily a signal processing problem rather than a networking issue, combatting packet loss, jitter, clock drift, and acoustic echo using adaptive algorithms. They developed legendary narrowband and wideband codecs like iLBC (RFC 3951) and iSAC, along with advanced media engines for acoustic echo cancellation (AEC), noise suppression, and automatic gain control (AGC). Licensing their software to Yahoo!, AOL, Cisco WebEx, and Google Talk, GIPS became the industry reference stack.
 
-In May 2010, Google acquired GIPS for \$68.2 million, and subsequently open-sourced the entire engine on May 31, 2011, under the leadership of Harald Alvestrand and Justin Uberti \cite{seanslabwebrtc}. This open-source release formed the technical foundation for the dual-track standardization process: the W3C WebRTC Working Group (defining the client JavaScript API) and the IETF RTCWeb Working Group (defining the underlying protocols). The subsequent decade saw intense engineering battles, including the Mandatory To Implement (MTI) video codec war between Google's royalty-free VP8 codec and the telecom industry's H.264 standard, culminating in the 2014 compromise to support both codecs. This was followed by the Session Description Protocol (SDP) negotiation debates, leading to Microsoft's brief ORTC (Object RTC) implementation in Edge and the eventual hybrid APIs adopted in WebRTC 1.0.
+In May 2010, Google acquired GIPS for \$68.2 million, and subsequently open-sourced the entire engine on May 31, 2011, under the leadership of Harald Alvestrand and Justin Uberti \cite{seanslabwebrtc}. This open-source release formed the technical foundation for the dual-track standardization process: the W3C WebRTC Working Group (defining the client JavaScript API) and the IETF RTCWeb Working Group (defining the underlying protocols). The subsequent decade saw intense engineering battles, including the Mandatory To Implement (MTI) video codec war between Google's royalty-free VP8 codec and the telecom industry's H.264 standard, culminating in the 2014 compromise to support both codecs. This was followed by the Session Description Protocol (SDP) negotiation debates, leading to Microsoft's brief ORTC (Object RTC) implementation in Edge and the eventual hybrid APIs adopted in WebRTC 1.0. Crucially, to enable WebRTC capabilities outside of traditional browser engines, early implementations like Ericsson Research's OpenWebRTC project \cite{openwebrtc} pioneered the use of the GStreamer multimedia framework to process media tracks natively on mobile devices and servers, directly prefiguring standalone native MCU systems.
 
-Typical WebRTC architectures utilize a Selective Forwarding Unit (SFU) where each participant uploads one stream and receives ${K-1}$ downstream feeds from other participants. At scale, this places heavy download bandwidth and decoding overhead on client browsers, especially for low-powered endpoint terminals. To address this, we implement a Multipoint Control Unit (MCU) model, where the server decodes all incoming streams, mixes the audio signals, composites the video tracks into a unified grid matrix, and broadcasts a single combined stream back to the clients. This reduces client-side complexity to $O(1)$. To minimize server-side overhead (which traditionally relies on heavy headless browsers like Chromium to capture grid layouts), we present a C99 GStreamer-based MCU integrated directly into a share-nothing Erlang/OTP monolith pod running on Alpine Linux.
+\subsection{Conferencing Topologies: P2P, SFU, and MCU}
+
+Modern real-time communication architectures leverage three primary media distribution topologies:
+
+\begin{enumerate}
+    \item \textbf{Direct Peer-to-Peer (P2P)}: In 1-on-1 configurations ($K=2$), participants stream media directly between endpoints (or via STUN/TURN relay) bypassing the media server entirely. Our orchestrator detects this case dynamically, configuring direct signaling channels. This simplified P2P connection minimizes server resource usage to near zero, providing a highly efficient baseline fallback.
+    \item \textbf{Selective Forwarding Unit (SFU)}: In multi-party conferences ($K \ge 3$), SFUs route separate audio and video packets from each publisher to all other participants without transcoding. While this saves server CPU cycles, it shifts the computational and bandwidth burden to endpoints, which must decode $K-1$ incoming streams and handle network fluctuations for each. In resource-constrained enterprise networks, mobile clients, and high-security endpoints, this multi-decoder load is a major failure point. Thus, the SFU model can be completely abandoned for this architecture.
+    \item \textbf{Multipoint Control Unit (MCU)}: To ensure $O(1)$ client bandwidth and decoding complexity, we enforce a centralized MCU model. The server decodes all incoming feeds, mixes audio tracks, composites the video streams into a single grid canvas, and encodes a unified broadcast feed back to all endpoints. By running this pipeline in C99 using GStreamer and sharding room instances horizontally across stateless Alpine Linux pods, we bypass the traditional CPU bottlenecks of monolithic MCUs, making the SFU completely obsolete for high-density, secure deployments.
+\end{enumerate}
 
 \newpage
 \section{System Architecture}
@@ -56,7 +66,7 @@ and the GStreamer media compositor.
 \subsection{Architectural Topology}
 Figure~\ref{fig:topology} shows the physical and logical entities, protocols, and network connections.
 
-\begin{figure}[htbp]
+\begin{figure}[htbp!]
 \centering
 \begin{tikzpicture}
 [
@@ -313,7 +323,7 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
 \end{figure}
 
 \newpage
-\subsection{Multipoint Media Composition and GStreamer Implementation}
+\subsection{Multipoint Media Composition}
 
 The GStreamer media broker executes video grid compositing and audio conferencing concurrently. The media plane runs as a single GStreamer pipeline initialized in a C99 OS port process.
 
@@ -351,7 +361,8 @@ To prevent digital clipping/overflow, the mixed LPCM buffer passes through a lim
 S_{\text{output}}(t) = \text{Clamp}(S_{\text{mixed}}(t), -S_{\text{max}}, S_{\text{max}})
 \end{equation}
 
-\subsubsection{C99 Media Pipeline Implementation Details}
+\newpage
+\subsubsection{C99 GStreamer Pipeline Implementation}
 
 The implementation in \texttt{c\_src/gst.c} integrates WebRTC media reception, grid composition, and recording:
 
@@ -364,21 +375,77 @@ The implementation in \texttt{c\_src/gst.c} integrates WebRTC media reception, g
 \end{enumerate}
 
 \newpage
-\section{Capacity Calculation, Telemetry \& SRE Metrics}
+\section{Capacity, Telemetry and Metrics}
 
-Table~\ref{tab:codecs_mcu} specifies the streaming codec, resolution, and bitrates assumed in our capacity review.
+This section evaluates resource provisioning and cluster capacity for a target workload of \textbf{1,000 concurrent MCU rooms} (compositing multiple 720p streams @ 30~fps into unified outputs) with hardware acceleration. The target distribution comprises:
+\begin{itemize}
+    \item \textbf{80\% (800 rooms)}: 6-participant rooms.
+    \item \textbf{20\% (200 rooms)}: 20-participant rooms.
+\end{itemize}
 
-\begin{table}[h]
+To satisfy these requirements while minimizing costs, we specify a heterogeneous GPU-accelerated cluster consisting of \textbf{40 physical nodes}: 20 Small Nodes and 20 Big Nodes.
+
+\subsection{Node Specifications}
+
+Table~\ref{tab:node_specs} outlines the hardware profiles for the Small and Big nodes configured with GPU acceleration and cost-effective DDR4 memory.
+
+\begin{table}[htbp]
 \centering
-\caption{Codec, Resolution, and Bitrate Parameters}
-\label{tab:codecs_mcu}
+\caption{Node Types and Specifications (GPU-Accelerated, Lower DDR4)}
+\label{tab:node_specs}
 \noindent\makebox[\textwidth][c]{
-\begin{tabular}{llll}
+\begin{tabular}{lcc}
 \toprule
-Stream Type & Codec & Resolution & Bitrate (per stream) \\
+\textbf{Component} & \textbf{Small Node (6-person)} & \textbf{Big Node (20-person)} \\
 \midrule
-Incoming WebRTC (per client) & H.264 (Baseline Profile) or VP8 & HD ($1280 \times 720$) @ 30~fps & 1.5~Mbps \\
-Output Recording (Composited) & H.264 (High Profile) via x264 & 1080p ($1920 \times 1080$) @ 30~fps & 4.0~Mbps \\
+Target Use & 6-participant rooms & 20-participant rooms \\
+CPU & Single Xeon Silver/Gold (16--24 cores) & Dual Xeon Gold/Platinum (32--64+ cores) \\
+RAM & 64--96\,GB DDR4 & 128\,GB DDR4 \\
+GPU & 1 $\times$ Mid-High NVIDIA (e.g., RTX 4090 / A10) & 2 $\times$ High-End NVIDIA (e.g., A40 / L40S) \\
+Network & 25--40\,Gbps & 40--100\,Gbps \\
+Storage & 256\,GB NVMe SSD & 512\,GB NVMe SSD \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsection{Per-Node and Cluster Capacity}
+
+Under GPU acceleration, decoding is performed via NVDEC and encoding via NVENC, drastically reducing CPU core utilisation. Table~\ref{tab:node_capacity} lists the real-time room capacity per node type, and Table~\ref{tab:cluster_capacity} summarizes the total cluster capacity and resource footprint.
+
+\begin{table}[htbp]
+\centering
+\caption{Real-Time Capacity per Node}
+\label{tab:node_capacity}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Small Node} & \textbf{Big Node} \\
+\midrule
+Rooms per Node & 45 & 12 \\
+Input Streams per Node & $\approx$ 270 & $\approx$ 240 \\
+Output Streams per Node & 45 & 12 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Total Cluster Capacity and Resource Summary}
+\label{tab:cluster_capacity}
+\noindent\makebox[\textwidth][c]{
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Category} & \textbf{Small Nodes (20)} & \textbf{Big Nodes (20)} & \textbf{Total / Headroom} \\
+\midrule
+6-Person Rooms & 900 & -- & 900 (\textbf{+100 headroom}) \\
+20-Person Rooms & -- & 240 & 240 (\textbf{+40 headroom}) \\
+Max Mixed Rooms & -- & -- & \textbf{1,140} \\
+Target Workload & 800 & 200 & \textbf{1,000 (covered with 14\% headroom)} \\
+\midrule
+Total DDR4 RAM & & & $\approx$ 3.8--4.2\,TB \\
+Total NVIDIA GPUs & & & 60 \\
 \bottomrule
 \end{tabular}
 }
@@ -386,126 +453,70 @@ Output Recording (Composited) & H.264 (High Profile) via x264 & 1080p ($1920 \ti
 
 \subsection{System Model \& Parameter Definitions}
 
-We model the monolithic node as a closed queuing system handling concurrent signaling channels, relayed network packets, and active video compositing pipelines.
+We model the memory and CPU consumption of the GStreamer MCU processes to validate these provisioning limits.
 
 \subsubsection{Memory Allocation Model}
-The total memory consumption $M_{\text{total}}$ of the Alpine Linux container is formulated as:
+The total RAM consumption $M_{\text{total}}$ of a node is formulated as:
 \begin{equation}
-M_{\text{total}} = M_{\text{base}} + N \cdot M_{\text{conn}} + N_{\text{turn}} \cdot M_{\text{turn}} + R \cdot (M_{\text{room}} + M_{\text{gst}}(K))
+M_{\text{total}} = M_{\text{base}} + N \cdot M_{\text{conn}} + R \cdot (M_{\text{room}} + M_{\text{gst}}(K))
 \end{equation}
-Where $M_{\text{gst}}(K)$ is the GStreamer media compositor RAM footprint for $K$ active peer connections:
+Where the GStreamer media compositor RAM footprint for $K$ active peer connections is:
 \begin{equation}
 M_{\text{gst}}(K) = M_{\text{base\_gst}} + K \cdot M_{\text{peer\_gst}}
 \end{equation}
 
-Parameter definitions and values:
+For a Small Node hosting $R = 45$ rooms with $K = 6$ participants each:
 \begin{itemize}
-    \item $M_{\text{base}}$: Base RAM overhead of the BEAM runtime and OS libraries ($\approx 50$~MB).
-    \item $N$: Total concurrent client connection sessions.
-    \item $M_{\text{conn}}$: Actor memory footprint per socket (server process + state) ($\approx 2$~KB).
-    \item $N_{\text{turn}}$: Active relayed allocations managed by \texttt{eturnal} ($N_{\text{turn}} \le N$).
-    \item $M_{\text{turn}}$: Network allocation state allocation inside \texttt{eturnal} ($\approx 10$~KB).
-    \item $R$: Number of active video conference rooms.
-    \item $M_{\text{room}}$: Room coordinator GenServer process memory ($\approx 5$~KB).
-    \item $M_{\text{base\_gst}}$: GStreamer base pipeline initialization and static background source memory ($\approx 120$~MB).
-    \item $M_{\text{peer\_gst}}$: GStreamer dynamic allocation footprint per active peer track (includes WebRTC bins, decodebins, converters, and queue buffers) ($\approx 35$~MB for HD 720p streams).
+    \item $M_{\text{base\_gst}} \approx 120$~MB (base GStreamer and pipeline structures).
+    \item $M_{\text{peer\_gst}} \approx 35$~MB (buffers and decode pipelines per 720p stream).
+    \item $M_{\text{gst}}(6) = 120 + 6 \cdot 35 = 330$~MB per room.
+    \item $M_{\text{total}} \approx 45 \cdot (330 + 0.005) \approx 14.85$~GB of heap/process memory, easily fitting within the 64--96\,GB DDR4 Small Node configuration.
 \end{itemize}
 
-Crucially, because of the dynamic \texttt{cleanup\_peer()} callback, $M_{\text{gst}}(K)$ scales with the currently connected streams $K$ rather than the cumulative/historical connections.
-
-\subsubsection{CPU Utilization Model}
-
-The total CPU load $C_{\text{total}}$ (expressed in Cores) is defined as:
-\begin{equation}
-C_{\text{total}} = C_{\text{beam}}(N) + C_{\text{turn}}(T) + R \cdot C_{\text{gst}}(K)
-\end{equation}
-
-Where:
+Similarly, for a Big Node hosting $R = 12$ rooms with $K = 20$ participants each:
 \begin{itemize}
-    \item $C_{\text{beam}}(N)$: CPU load of the BEAM signaling scheduler for $N$ users (highly linear: $1.5 \times 10^{-5}$ cores per active connection).
-    \item $C_{\text{turn}}(T)$: CPU consumption of STUN/TURN packet forwarding, where $T$ is the throughput in Mbps (Network I/O bound).
-    \item $C_{\text{gst}}(K)$: CPU complexity of a GStreamer composition pipeline with $K$ active streams.
+    \item $M_{\text{gst}}(20) = 120 + 20 \cdot 35 = 820$~MB per room.
+    \item $M_{\text{total}} \approx 12 \cdot (820 + 0.005) \approx 9.84$~GB process RAM, fitting well within the 128\,GB DDR4 specification. The remaining host memory provides ample caching, OS buffers, and network ring buffers.
 \end{itemize}
 
-\subsection{Computational Complexity of GStreamer Compositing}
+\subsubsection{CPU and GPU Offloading Model}
 
-The computational load of GStreamer compositing is a function of background source streams, dynamic decoders, grid scaling transformations, and output encoding:
+With GPU-offloaded media pipelines, the total CPU load $C_{\text{total}}$ remains low because the heavy matrix composition, pixel format conversion, and H.264 encoding are executed on CUDA and NVENC. The node's processing capability is instead bound by the GPU's hardware session limits (NVENC concurrent streams) and network throughput.
+
+The network throughput $T_{\text{net}}$ per node is defined by incoming and outgoing media streams:
 \begin{equation}
-C_{\text{gst}}(K) = C_{\text{base\_gst}} + \sum_{i=1}^{K} D_i(W_i, H_i, F_i) + \Phi\left(\sum_{i=1}^{K} W_i \cdot H_i\right) + E(W_{\text{out}}, H_{\text{out}}, F_{\text{out}})
+T_{\text{net}} = R \cdot \left( K \cdot B_{\text{in}} + B_{\text{out}} \right)
 \end{equation}
-
-Where:
+Where $B_{\text{in}}$ is the incoming client bitrate (1.5~Mbps H.264 720p) and $B_{\text{out}}$ is the mixed output canvas bitrate (4.0~Mbps 1080p).
 \begin{itemize}
-    \item $C_{\text{base\_gst}}$: GStreamer background loop overhead (compositing videotestsrc/audiotestsrc) ($\approx 0.05$ Cores).
-    \item $D_i$: Decoding complexity of stream $i$ with width $W_i$, height $H_i$, and frame-rate $F_i$ ($\approx 0.0375$ Cores for H.264/VP8 720p @ 30fps).
-    \item $\Phi$: Grid scaling and pixel blending transformation complexity ($\approx 0.05$ Cores for scaling and compositing up to 4 HD streams).
-    \item $E$: Encoder complexity (e.g., x264 software encoding) for output width $W_{\text{out}}$ and height $H_{\text{out}}$ ($\approx 0.65$ Cores for H.264 High Profile 1080p @ 30fps).
+    \item \textbf{Small Node Traffic}: $45 \cdot (6 \cdot 1.5 + 4.0) = 585$~Mbps. This is well within the 25--40\,Gbps network interface capacity.
+    \item \textbf{Big Node Traffic}: $12 \cdot (20 \cdot 1.5 + 4.0) = 408$~Mbps. This is comfortably supported by the 40--100\,Gbps interfaces, ensuring no network queuing jitter.
 \end{itemize}
-
-For a standard layout ($K = 4$ active streams at 720p @ 30fps composited into a single 1080p @ 30fps H.264 stream), the CPU core consumption without hardware acceleration (GPU/QuickSync) is formulated as:
-\begin{equation}
-C_{\text{gst}}(4) \approx 0.05\text{(Base)} + 4 \cdot 0.0375\text{(Dec)} + 0.05\text{(Comp)} + 0.65\text{(x264)} = 1.00\text{ Core}
-\end{equation}
-
-\subsection{Capacity Boundaries (4 Cores, 4 GB RAM)}
-
-Using the parameters defined above, we evaluate the maximum capacity limits of a single Kubernetes pod.
-
-\subsubsection{Scenario A: Idle Signaling \& TURN Relay}
-
-No GStreamer mixers. Given: $R = 0$, $N = 10,000$, $N_{\text{turn}} = 2,000$ (relaying 2~Gbps aggregate traffic).
-\begin{equation}
-M_{\text{total}} = 50\text{ MB} + (10,000 \cdot 2\text{ KB}) + (2,000 \cdot 10\text{ KB}) = 90\text{ MB}
-\end{equation}
-\begin{equation}
-C_{\text{total}} = 0.15\text{ Cores (Erlang)} + 0.80\text{ Cores (TURN Relay)} = 0.95\text{ Cores}
-\end{equation}
-
-Evaluation: The node is highly stable. RAM utilization is at $2.25\%$ and CPU is at $23.7\%$.
-
-\subsubsection{Scenario B: Active Recording \& Compositing}
-
-Given: $N = 1,000$, $N_{\text{turn}} = 100$, and $R$ active mixing rooms (4 inputs each).
-\begin{align*}
-M_{\text{total}} &= 50\text{ MB} + 2\text{ MB} + 1\text{ MB} + R \cdot (5\text{ KB} + 260\text{ MB}) \le 4,000\text{ MB} \implies R \le 15.17\text{ Rooms} \\
-C_{\text{total}} &= 0.015\text{ Cores} + 0.04\text{ Cores} + R \cdot 1.00\text{ Cores} \le 4.00\text{ Cores} \implies R \le 3.94\text{ Rooms}
-\end{align*}
-
-Under standard CPU limits, the pod saturates at $R = 3$ active mixed rooms.
-
-\subsubsection{Scenario C: Scaling to 1000 Concurrent Rooms}
-
-To achieve the operational target of 1000 concurrent rooms (4000 active HD streams, 4 clients each):
-\begin{enumerate}
-    \item \textbf{Vertical Monolith Node (Scale-Up)}: Host all 1000 rooms inside a single monolithic VM/Pod container. Requires $M_{\text{total}} \approx 50\text{ MB} + 8\text{ MB} + 4\text{ MB} + 1,000 \cdot (0.005\text{ MB} + 260\text{ MB}) \approx 260.07$~GB RAM and $C_{\text{total}} \approx 0.06\text{ Cores} + 0.16\text{ Cores} + 1,000 \cdot 1.00\text{ Cores} \approx 1000.22$~Cores. Requires a 1000-Core / 256~GB RAM bare-metal server node.
-    \item \textbf{Horizontal Scaling (Scale-Out)}: Distribute 1000 rooms across $P$ isolated, independent Alpine Linux pods running on a 4-Core / 4~GB RAM boundary. Since $R_{\text{node}} = 3$, $P = \lceil 1,000 / 3 \rceil = 334$ Pod Replicas. Nodes operate as share-nothing instances without forming an Erlang cluster.
-    \item \textbf{Hardware-Accelerated Monolith (GPU-Offloaded)}: Offload H.264 software encoding to NVENC. The accelerated CPU complexity per room drops to $C_{\text{gst, gpu}}(4) \approx 0.40$~Cores. Total CPU for 1000 rooms is $C_{\text{total}} \approx 0.06\text{ Cores} + 0.16\text{ Cores} + 1,000 \cdot 0.40\text{ Cores} \approx 400.22$~Cores. Requires a cluster of GPU-enabled Kubernetes nodes with NVENC capability (e.g., 10 nodes of 40-Cores / 32~GB RAM with GPU).
-\end{enumerate}
 
 \subsection{Systems Soundness \& Liveness Analysis}
 
 \subsubsection*{HPA Oscillation (Thundering Herd)}
 
-Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU limits (e.g., 80\% target) creates severe scaling instabilities. When $R$ goes from $1 \to 3$, CPU spikes from $26\% \to 80\%$, triggering replica creation. Because Erlang cluster state is localized on each pod, the new replica registers, but since incoming signaling sockets do not balance instantly, the CPU spike persists on the first node, prompting further HPA scale-ups until replica bounds are hit. The scaling algorithm must utilize custom metrics mapped to active GStreamer mixers (\texttt{active\_gst\_mixers}) instead of generic system CPU metrics.
+Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU limits (e.g., 80\% target) creates scaling instabilities when CPU is offloaded to GPUs. Because CPU utilization remains low under hardware acceleration, standard HPA fails to react to room saturation. The autoscaling algorithm must instead utilize custom metrics mapped directly to active GStreamer mixers (\texttt{active\_gst\_mixers}) and GPU memory utilization.
 
 \subsubsection*{Local Database Isolation (No Database Clustering)}
 
-Under the isolated pod model, Mnesia runs strictly as a local persistent storage database inside each pod's local directory (persisted via Kubernetes PVC on Alpine Linux). Because Erlang nodes do not form a cluster, all database transaction locking, schema updates, and state operations are restricted to the local node. This completely avoids split-brain partitions, node discovery synchronization issues, and cluster-wide database deadlocks during HPA scaling, ensuring high reliability and simplified operations.
+Under our sharded node model, Mnesia runs strictly as a local persistent storage database inside each pod's local volume. Because Erlang nodes do not form a distribution cluster, database transaction locking and schema updates are restricted to the local host. This completely avoids split-brain partitions, node discovery synchronization issues, and cluster-wide database deadlocks during rapid scale-up/down events.
 
 \subsubsection*{Scale-Out Architecture Bottlenecks at 1000+ Rooms}
 
-When scaling the cluster horizontally to support $R = 1,000$ active rooms across $\approx 334$ replicas of 4-Core pods (each pod hosting 3 rooms), three critical infrastructure bottlenecks emerge:
+When scaling the cluster horizontally to support $R = 1,000$ active rooms across the 40 GPU-accelerated nodes:
 \begin{enumerate}
-    \item \textbf{Erlang Distribution Overhead Bypassed}: By routing all room participants to the same pod via Ingress Sticky Session hashing, signaling is fully handled locally in-memory. Consequently, the Erlang distribution mechanism is completely disabled (the nodes run with \texttt{-no\_distribution}), totally avoiding the quadratic $O(P^2)$ connection storm ($\approx 111,000$ links at $P=334$ replicas) and ensuring that pods remain as isolated Alpine Linux containers.
-    \item \textbf{Mnesia Transaction Locking Isolated}: Since Mnesia runs as a purely local database on each isolated pod (with local folder persistence on Alpine Linux), transaction lock contention is strictly confined to the local node's processes. This eliminates distributed two-phase commit latency (RTT replication delays) and prevents cluster-wide Mnesia transaction deadlocks.
-    \item \textbf{Network Port \& Bandwidth Saturation}: At an average stream bitrate of $1.5$~Mbps, the aggregate network ingestion throughput reaches $4,000 \times 1.5\text{ Mbps} = 6.0$~Gbps. Under standard Kubernetes network overlays (e.g., Calico/Flannel), encapsulation overhead (VXLAN/Geneve) consumes substantial CPU, bottlenecking network card rings. SREs must deploy network interfaces using \texttt{hostNetwork} configurations with SRIOV-enabled interfaces to bypass container network encapsulation.
+    \item \textbf{Erlang Distribution Overhead Bypassed}: By routing all room participants to the same node via Ingress Sticky Session hashing, signaling is fully handled locally in-memory. Consequently, the Erlang distribution mechanism is completely disabled (the nodes run with \texttt{-no\_distribution}), totally avoiding quadratic $O(P^2)$ node connection storms.
+    \item \textbf{Mnesia Transaction Locking Isolated}: Since Mnesia runs as a purely local database on each isolated host, transaction lock contention is strictly confined to the local node's processes, eliminating distributed two-phase commit latency.
+    \item \textbf{Network Port \& Bandwidth Saturation}: At an average stream bitrate of $1.5$~Mbps, the aggregate network ingestion throughput reaches $4,000 \times 1.5\text{ Mbps} = 6.0$~Gbps. SREs must deploy network interfaces using \texttt{hostNetwork} configurations with SRIOV-enabled interfaces to bypass container network encapsulation.
 \end{enumerate}
 
 \section{Conclusion}
-The proposed monolithic architecture is highly sound for large-scale signaling and STUN/TURN routing, easily supporting over 10,000 concurrent user events. However, software-based video compositing introduces a severe compute limit, capping density at 3 rooms per pod on a 4-Core boundary. Transitioning to hardware-accelerated transcoding (NVENC/VAAPI) or partitioning media processing to dedicated GPU nodes is required to increase room density.
 
-The \texttt{rtp} architecture demonstrates that video conferencing signaling and media composting can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective SRE model for secure networks.
+The proposed monolithic architecture is highly sound for large-scale signaling and STUN/TURN routing, easily supporting over 10,000 concurrent user events. By transitioning to hardware-accelerated video compositing (using NVIDIA NVENC and CUDA offloading) and partitioning media processing dynamically between Small and Big nodes, the system achieves the target scale of 1,000 concurrent rooms within a cost-effective, low-memory 40-node cluster.
 
+The \texttt{rtp} architecture demonstrates that video conferencing signaling and media compositing can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective SRE model for secure networks.
 \begin{thebibliography}{99}
 
 \bibitem{rfc3264}

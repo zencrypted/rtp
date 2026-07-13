@@ -97,7 +97,7 @@ static void on_offer_created(GstPromise *promise, gpointer user_data) {
 
     // Format SDP offer JSON
     gchar *sdp_text = gst_sdp_message_as_text(offer->sdp);
-    
+
     JsonBuilder *builder = json_builder_new();
     json_builder_begin_object(builder);
     json_builder_set_member_name(builder, "type");
@@ -303,7 +303,7 @@ static void handle_signaling_message(const gchar *json_str) {
     } else if (g_strcmp0(type, "sdp_answer") == 0) {
         const gchar *peer_id = json_object_get_string_member(root, "peer_id");
         const gchar *sdp_text = json_object_get_string_member(root, "sdp");
-        
+
         PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
         GstElement *webrtc = peer ? peer->webrtc : NULL;
         if (webrtc) {
@@ -311,7 +311,7 @@ static void handle_signaling_message(const gchar *json_str) {
             gst_sdp_message_new(&sdp);
             gst_sdp_message_parse_buffer((const guint8 *)sdp_text, strlen(sdp_text), sdp);
             GstWebRTCSessionDescription *answer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdp);
-            
+
             GstPromise *promise = gst_promise_new();
             g_signal_emit_by_name(webrtc, "set-remote-description", answer, promise);
             gst_promise_interrupt(promise);
@@ -344,7 +344,7 @@ static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candida
     json_builder_add_string_value(builder, "ice_candidate");
     json_builder_set_member_name(builder, "peer_id");
     json_builder_add_string_value(builder, peer->peer_id);
-    
+
     json_builder_set_member_name(builder, "candidate");
     json_builder_begin_object(builder);
     json_builder_set_member_name(builder, "sdpMLineIndex");
@@ -352,7 +352,7 @@ static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candida
     json_builder_set_member_name(builder, "candidate");
     json_builder_add_string_value(builder, candidate);
     json_builder_end_object(builder);
-    
+
     json_builder_end_object(builder);
 
     JsonNode *root = json_builder_get_root(builder);
@@ -373,11 +373,11 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
     if (g_str_has_prefix(name, "video")) {
         gst_caps_unref(caps);
         g_printerr("DEBUG: Linking video pad to compositor for peer: %s\n", peer->peer_id);
-        
+
         // Request compositor sink pad and lay it out in the grid
         GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
         peer->comp_pad = comp_pad; // Keep ownership reference for cleanup
-        
+
         gint idx = state.pad_index++;
         gint w = WIDTH / 2;
         gint h = HEIGHT / 2;
@@ -413,7 +413,7 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
         peer->a_convert = converter;
         peer->a_resample = resampler;
-        
+
         gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, NULL);
 
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
@@ -522,7 +522,8 @@ int main(int argc, char *argv[]) {
     gchar *pipeline_str = g_strdup_printf(
         "videotestsrc pattern=black is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
         "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-        "compositor name=mix ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 ! h264parse ! rtph264pay config-interval=1 ! tee name=vtee "
+        "compositor name=mix ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
+        "speed-preset=ultrafast key-int-max=30 ! h264parse ! rtph264pay config-interval=1 ! tee name=vtee "
         "audiomixer name=amix ! audioconvert ! audioresample ! opusenc ! rtpopuspay ! tee name=atee "
         "vtee. ! queue ! rtph264depay ! h264parse ! mux. "
         "atee. ! queue ! rtpopusdepay ! opusparse ! mux. "

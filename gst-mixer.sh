@@ -2,7 +2,7 @@
 # gst-mixer.sh - Compile and run the GStreamer MCU Mixer
 
 C_SRC="c_src/gst.c"
-BIN="priv/gst_recorder"
+BIN="priv/gst"
 OUT_FILE="${1:-output.mp4}"
 
 mkdir -p priv

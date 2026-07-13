@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <glib-unix.h>
 
 #define WIDTH 1920
 #define HEIGHT 1080
@@ -95,7 +97,7 @@ static void on_offer_created(GstPromise *promise, gpointer user_data) {
 
 // Setup webrtcbin for a newly joined peer (Both receiving upstream & broadcasting downstream)
 static void setup_peer(const gchar *peer_id) {
-    g_print("DEBUG: Setting up webrtcbin for peer: %s\n", peer_id);
+    g_printerr("DEBUG: Setting up webrtcbin for peer: %s\n", peer_id);
     gchar *bin_name = g_strdup_printf("webrtc_%s", peer_id);
     GstElement *webrtc = gst_element_factory_make("webrtcbin", bin_name);
     g_free(bin_name);
@@ -105,19 +107,16 @@ static void setup_peer(const gchar *peer_id) {
         return;
     }
 
-    gst_bin_add(GST_BIN(state.pipeline), webrtc);
-    gst_element_sync_state_with_parent(webrtc);
-    g_hash_table_insert(state.webrtcbins, g_strdup(peer_id), webrtc);
+    GstElement *v_queue = gst_element_factory_make("queue", NULL);
+    GstElement *a_queue = gst_element_factory_make("queue", NULL);
+
+    gst_bin_add_many(GST_BIN(state.pipeline), webrtc, v_queue, a_queue, NULL);
 
     // Link downstream mixed video broadcast (vtee) to this peer's webrtcbin
-    GstElement *v_queue = gst_element_factory_make("queue", NULL);
-    gst_bin_add(GST_BIN(state.pipeline), v_queue);
-    gst_element_sync_state_with_parent(v_queue);
-
     GstPad *vtee_src = gst_element_request_pad_simple(state.video_tee, "src_%u");
     GstPad *vqueue_sink = gst_element_get_static_pad(v_queue, "sink");
     GstPad *vqueue_src = gst_element_get_static_pad(v_queue, "src");
-    GstPad *webrtc_vsink = gst_element_request_pad_simple(webrtc, "sink_%u");
+    GstPad *webrtc_vsink = gst_element_request_pad_simple(webrtc, "sink_0");
 
     gst_pad_link(vtee_src, vqueue_sink);
     gst_pad_link(vqueue_src, webrtc_vsink);
@@ -128,14 +127,10 @@ static void setup_peer(const gchar *peer_id) {
     gst_object_unref(webrtc_vsink);
 
     // Link downstream mixed audio broadcast (atee) to this peer's webrtcbin
-    GstElement *a_queue = gst_element_factory_make("queue", NULL);
-    gst_bin_add(GST_BIN(state.pipeline), a_queue);
-    gst_element_sync_state_with_parent(a_queue);
-
     GstPad *atee_src = gst_element_request_pad_simple(state.audio_tee, "src_%u");
     GstPad *aqueue_sink = gst_element_get_static_pad(a_queue, "sink");
     GstPad *aqueue_src = gst_element_get_static_pad(a_queue, "src");
-    GstPad *webrtc_asink = gst_element_request_pad_simple(webrtc, "sink_%u");
+    GstPad *webrtc_asink = gst_element_request_pad_simple(webrtc, "sink_1");
 
     gst_pad_link(atee_src, aqueue_sink);
     gst_pad_link(aqueue_src, webrtc_asink);
@@ -144,6 +139,13 @@ static void setup_peer(const gchar *peer_id) {
     gst_object_unref(aqueue_sink);
     gst_object_unref(aqueue_src);
     gst_object_unref(webrtc_asink);
+
+    // Sync state after elements are added and linked
+    gst_element_sync_state_with_parent(v_queue);
+    gst_element_sync_state_with_parent(a_queue);
+    gst_element_sync_state_with_parent(webrtc);
+
+    g_hash_table_insert(state.webrtcbins, g_strdup(peer_id), webrtc);
 
     // Connect GObject signaling handlers
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), g_strdup(peer_id));
@@ -241,12 +243,11 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gint x = (idx % 2) * w;
         gint y = (idx / 2) * h;
 
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, NULL);
-        g_print("DEBUG: Linked video pad to compositor quadrant position (%d, %d)\n", x, y);
+        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint) (idx + 10), NULL);
+        g_printerr("DEBUG: Linked video pad to compositor quadrant position (%d, %d) with zorder %u\n", x, y, idx + 10);
 
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
         gst_bin_add(GST_BIN(state.pipeline), converter);
-        gst_element_sync_state_with_parent(converter);
 
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src = gst_element_get_static_pad(converter, "src");
@@ -254,13 +255,15 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gst_pad_link(pad, conv_sink);
         gst_pad_link(conv_src, comp_pad);
 
+        gst_element_sync_state_with_parent(converter);
+
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
         gst_object_unref(comp_pad);
 
     } else if (g_str_has_prefix(name, "audio")) {
         gst_caps_unref(caps);
-        g_print("DEBUG: Linking audio pad to audiomixer\n");
+        g_printerr("DEBUG: Linking audio pad to audiomixer\n");
 
         GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
 
@@ -268,8 +271,6 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
         
         gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, NULL);
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(resampler);
 
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src = gst_element_get_static_pad(converter, "src");
@@ -279,6 +280,9 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gst_pad_link(pad, conv_sink);
         gst_pad_link(conv_src, res_sink);
         gst_pad_link(res_src, amix_pad);
+
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(resampler);
 
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
@@ -294,26 +298,61 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer peer_id) {
     if (GST_PAD_DIRECTION(pad) != GST_PAD_SRC) return;
 
     GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) return;
     const GstStructure *str = gst_caps_get_structure(caps, 0);
-    const gchar *name = gst_structure_get_name(str);
-    gboolean is_video = g_str_has_prefix(name, "video");
-    gboolean is_audio = g_str_has_prefix(name, "audio");
+    const gchar *media = gst_structure_get_string(str, "media");
+    gboolean is_video = (g_strcmp0(media, "video") == 0);
+    gboolean is_audio = (g_strcmp0(media, "audio") == 0);
     gst_caps_unref(caps);
 
     if (!is_video && !is_audio) return;
 
-    g_print("DEBUG: New incoming track from peer: %s\n", (gchar *)peer_id);
+    g_printerr("DEBUG: New incoming track (%s) from peer: %s\n", is_video ? "video" : "audio", (gchar *)peer_id);
 
     // Create decodebin for track decoding
     GstElement *decodebin = gst_element_factory_make("decodebin", NULL);
     gst_bin_add(GST_BIN(state.pipeline), decodebin);
-    gst_element_sync_state_with_parent(decodebin);
 
     GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
     gst_pad_link(pad, sinkpad);
     gst_object_unref(sinkpad);
 
+    gst_element_sync_state_with_parent(decodebin);
+
     g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), NULL);
+}
+
+static gboolean on_unix_signal(gpointer user_data) {
+    gint sig = GPOINTER_TO_INT(user_data);
+    g_printerr("DEBUG: Caught signal %d via GLib, sending EOS to mux...\n", sig);
+    GstElement *mux = gst_bin_get_by_name(GST_BIN(state.pipeline), "mux");
+    if (mux) {
+        gst_element_send_event(mux, gst_event_new_eos());
+        gst_object_unref(mux);
+    }
+    return FALSE;
+}
+
+static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) {
+    switch (GST_MESSAGE_TYPE(message)) {
+        case GST_MESSAGE_EOS:
+            g_printerr("DEBUG: Received EOS on bus, exiting main loop\n");
+            g_main_loop_quit(state.loop);
+            break;
+        case GST_MESSAGE_ERROR: {
+            GError *err = NULL;
+            gchar *debug = NULL;
+            gst_message_parse_error(message, &err, &debug);
+            g_printerr("Error on bus: %s (%s)\n", err->message, debug ? debug : "");
+            g_clear_error(&err);
+            g_free(debug);
+            g_main_loop_quit(state.loop);
+            break;
+        }
+        default:
+            break;
+    }
+    return TRUE;
 }
 
 int main(int argc, char *argv[]) {
@@ -326,16 +365,18 @@ int main(int argc, char *argv[]) {
     gst_init(&argc, &argv);
 
     state.webrtcbins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
-    state.pad_index = 0;
+    state.pad_index = 1;
     state.loop = g_main_loop_new(NULL, FALSE);
 
     // Build the complete MCU mixing, recording, and broadcasting pipeline
     gchar *pipeline_str = g_strdup_printf(
-        "compositor name=mix ! videoconvert ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 ! h264parse ! rtph264pay config-interval=1 ! tee name=vtee "
+        "videotestsrc pattern=black is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
+        "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
+        "compositor name=mix ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 ! h264parse ! rtph264pay config-interval=1 ! tee name=vtee "
         "audiomixer name=amix ! audioconvert ! audioresample ! opusenc ! rtpopuspay ! tee name=atee "
-        "vtee. ! queue ! h264parse ! mux. "
-        "atee. ! queue ! opusparse ! mux. "
-        "mp4mux name=mux ! filesink location=%s",
+        "vtee. ! queue ! rtph264depay ! h264parse ! mux. "
+        "atee. ! queue ! rtpopusdepay ! opusparse ! mux. "
+        "mp4mux name=mux reserved-max-duration=3600000000000 reserved-moov-update-period=1000000000 ! filesink location=%s",
         out_file
     );
     state.pipeline = gst_parse_launch(pipeline_str, NULL);
@@ -346,7 +387,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    GstBus *bus = gst_element_get_bus(state.pipeline);
+    gst_bus_add_watch(bus, on_bus_message, NULL);
+    gst_object_unref(bus);
+
+    g_unix_signal_add(SIGINT, on_unix_signal, GINT_TO_POINTER(SIGINT));
+    g_unix_signal_add(SIGTERM, on_unix_signal, GINT_TO_POINTER(SIGTERM));
+
     state.compositor = gst_bin_get_by_name(GST_BIN(state.pipeline), "mix");
+    if (state.compositor) {
+        GstPad *bg_pad = gst_element_get_static_pad(state.compositor, "sink_0");
+        if (bg_pad) {
+            g_object_set(bg_pad, "zorder", (guint) 1, NULL);
+            gst_object_unref(bg_pad);
+        }
+    }
     state.audiomixer = gst_bin_get_by_name(GST_BIN(state.pipeline), "amix");
     state.video_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "vtee");
     state.audio_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "atee");
@@ -358,7 +413,7 @@ int main(int argc, char *argv[]) {
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);
     g_io_channel_unref(stdin_chan);
 
-    g_print("DEBUG: GStreamer MCU C process started\n");
+    g_printerr("DEBUG: GStreamer MCU C process started\n");
     fflush(stdout);
 
     // Enters GLib loop (runs main thread)

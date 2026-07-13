@@ -105,3 +105,79 @@ If you need more than four video streams, you can:
 ---
 
 *This document is intended to be added to the repository as documentation for developers working on the GStreamer MCU component.*
+
+---
+
+## GStreamer WebRTC MCU Video Conferencing MVP
+
+This section describes the minimal viable prototype (MVP) of the GStreamer WebRTC MCU video conferencing gateway, using a three-tier design:
+1. **GStreamer C Mixer (`c_src/gst.c`)**
+2. **Node.js Signaling & Web Server (`signal.js`)**
+3. **HTML5 WebRTC Client (`mcu.html`)**
+
+### 1. Architecture
+
+```mermaid
+graph TD
+    Client1[Safari Client 1] <-->|WebSocket| Sig[signal.js Signaling Server]
+    Client2[Safari Client 2] <-->|WebSocket| Sig
+    Client3[Safari Client 3] <-->|WebSocket| Sig
+    Sig <-->|stdin / stdout JSON| Mixer[gst-mixer.sh / gst_recorder]
+    
+    Client1 -.->|WebRTC Upstream| Mixer
+    Client2 -.->|WebRTC Upstream| Mixer
+    Client3 -.->|WebRTC Upstream| Mixer
+    
+    Mixer -.->|WebRTC Downstream mixed 2x2 grid| Client1
+    Mixer -.->|WebRTC Downstream mixed 2x2 grid| Client2
+    Mixer -.->|WebRTC Downstream mixed 2x2 grid| Client3
+    
+    Mixer -->|Record to file| File[output.mp4]
+```
+
+* **Continuous Live Mixing Feed**: The compositor uses a background black video stream (`videotestsrc`) and silence (`audiotestsrc`) on index `sink_0` to keep the pipeline continuously active (avoiding dynamic preroll deadlocks).
+* **Grid Layout Placement**: Peer streams are dynamically assigned grid positions starting at index `1` (`sink_1`, `sink_2`, `sink_3`), filling the top-right, bottom-left, and bottom-right sectors of the 1920x1080 canvas.
+* **Bi-directional Downstream**: The composite mixed grid and mixed audio are payloaded once, tee'd, and broadcasted back to all peers via their `webrtcbin` connections.
+* **Local Recording**: The RTP packets of the composite stream are depayloaded, parsed, and muxed into a local MP4 file (`output.mp4`).
+
+### 2. File Roles and Implementations
+
+#### A. C Mixer ([c_src/gst.c](file:///Users/tonpa/depot/zencrypted/rtp/c_src/gst.c) & [gst-mixer.sh](file:///Users/tonpa/depot/zencrypted/rtp/gst-mixer.sh))
+* Dynamic peer setups are signaled on `stdin` using JSON lines:
+  * `{"type": "peer_joined", "peer_id": "..."}`
+  * `{"type": "sdp_answer", "peer_id": "...", "sdp": "..."}`
+  * `{"type": "ice_candidate", "peer_id": "...", "candidate": {...}}`
+* Outputs SDP offers and ICE candidates on `stdout`:
+  * `{"type": "sdp_offer", "peer_id": "...", "sdp": "..."}`
+  * `{"type": "ice_candidate", "peer_id": "...", "candidate": {...}}`
+* All debug output is routed to `stderr` to prevent stdout contamination.
+
+#### B. Signaling & Web Monolith ([signal.js](file:///Users/tonpa/depot/zencrypted/rtp/signal.js))
+* Serves `mcu.html` on `http://localhost:8888` (so that Safari can grant camera/mic permissions on a secure origin).
+* Manages the life cycle of the `gst-mixer.sh` child process.
+* Directs and translates WebSocket JSON messages to/from GStreamer's standard streams.
+
+#### C. HTML5 Client ([mcu.html](file:///Users/tonpa/depot/zencrypted/rtp/mcu.html))
+* A responsive, glassmorphic dark theme built for modern video conferencing layouts.
+* Obtains user media (microphone and camera) and registers local tracks in the RTCPeerConnection before signaling `ready`.
+* Negotiates incoming WebRTC offers from the MCU, replies with SDP answers, and exchanges ICE candidates dynamically.
+
+### 3. Compilation and Execution
+
+1. **Verify dependencies** (GStreamer 1.20+ and the Nice plugin):
+   ```bash
+   brew install gstreamer libnice libnice-gstreamer
+   ```
+2. **Start the Signaling & Web Server**:
+   ```bash
+   node signal.js
+   ```
+3. **Connect Clients**:
+   Open 3 Safari tabs or windows to `http://localhost:8888`.
+   * Grant camera & microphone access.
+   * Click **Join Conference** in all tabs.
+4. **Finalize Recording**:
+   Stop the Node server with `Ctrl+C` (sending `SIGINT`). This executes the following safety measures:
+   * **Targeted Unix Signal Handler**: The C mixer intercepts unix signals (`SIGINT`/`SIGTERM`) safely using `g_unix_signal_add` on the GLib event loop thread. It sends an `EOS` event specifically to the `mp4mux` element (`mux`), which propagates it to `filesink` to write the standard MP4 trailer/header index.
+   * **Crash-Resilience Fallback**: `mp4mux` is configured with `reserved-max-duration` (supporting 1 hour) and `reserved-moov-update-period` (1 second). This reserves header space and writes index frames directly to the file every second, guaranteeing that `output.mp4` is always valid and playable even if the server crashes or is forcefully terminated (`kill -9`).
+

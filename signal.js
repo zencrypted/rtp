@@ -135,6 +135,10 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     console.log(`Client disconnected: ${peerId}`);
     peers.delete(peerId);
+    sendToMixer({
+      type: 'peer_left',
+      peer_id: peerId
+    });
   });
 });
 

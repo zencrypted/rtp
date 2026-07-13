@@ -454,11 +454,19 @@
         // 3. Setup track handlers
         pc.ontrack = (event) => {
           console.log('Received mixed remote track:', event.streams);
-          if (remoteVideo.srcObject !== event.streams[0]) {
-            remoteVideo.srcObject = event.streams[0];
-            remoteVideo.style.display = 'block';
-            placeholder.style.display = 'none';
+          let stream = event.streams[0];
+          if (!stream) {
+            if (!remoteVideo.srcObject) {
+              remoteVideo.srcObject = new MediaStream();
+            }
+            remoteVideo.srcObject.addTrack(event.track);
+          } else {
+            if (remoteVideo.srcObject !== stream) {
+              remoteVideo.srcObject = stream;
+            }
           }
+          remoteVideo.style.display = 'block';
+          placeholder.style.display = 'none';
         };
 
         pc.onicecandidate = (event) => {

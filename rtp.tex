@@ -6,7 +6,7 @@
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
 
-\title{\textbf{A Minimal X.600 MCU Gateway \\
+\title{\textbf{A Minimal MCU Gateway in 40KB \\
                for High-Density Video Conferencing \\
                on Alpine Linux in Kubernetes} \\ [1ex]
        {\LARGE For Zen Crypted X.422 Buddha Protocol}}
@@ -316,6 +316,7 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
 \label{fig:sequence}
 \end{figure}
 
+\newpage
 \subsection{Multipoint Media Composition and GStreamer Implementation}
 
 The GStreamer media broker executes video grid compositing and audio conferencing concurrently. The media plane runs as a single GStreamer pipeline initialized in a C99 OS port process.
@@ -476,7 +477,7 @@ C_{\text{total}} &= 0.015\text{ Cores} + 0.04\text{ Cores} + R \cdot 1.00\text{ 
 
 Under standard CPU limits, the pod saturates at $R = 3$ active mixed rooms.
 
-\subsubsection{Target Scenario: Scaling to 1000 Concurrent Rooms (4000 Streams)}
+\subsubsection{Scenario C: Scaling to 1000 Concurrent Rooms}
 
 To achieve the operational target of 1000 concurrent rooms (4000 active HD streams, 4 clients each):
 \begin{enumerate}

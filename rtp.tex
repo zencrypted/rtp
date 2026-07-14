@@ -223,6 +223,32 @@ Where $P$ is the total count of running replicas. This ensures that:
 The C99 GStreamer binary \texttt{gst} is spawned as an OS process by the Erlang supervisor.
 Rather than linking against heavy socket libraries, it reads signaling data from \texttt{stdin} and outputs event payloads to \texttt{stdout}.
 
+
+\subsubsection{Selected ITU-T X-Stack Standards}
+The following recommendations from the X-series provide a formal framework for group video conferencing:
+\begin{itemize}
+    \item \textbf{X.601} — Multi-peer communications framework
+    \item \textbf{X.602} — Group management protocol
+    \item \textbf{X.603/X.603.1/X.603.2} — Relayed multicast protocol (simplex/N-plex)
+    \item \textbf{X.604/X.604.1/X.604.2} — Mobile multicast communications
+    \item \textbf{X.605--X.608.1} — Enhanced Communications Transport Service (ECTS)
+    \item \textbf{X.609.3/X.609.4} — Multimedia streaming signaling and peer protocols
+    \item \textbf{X.609--X.609.10} — Managed peer-to-peer (P2P) communications
+\end{itemize}
+
+By mapping these components directly to the X.600-series recommendations, the system achieves significantly reduced signaling overhead, formal compliance with ITU-T multi-peer frameworks, and improved scalability for high-density rooms.
+
+\newpage
+\subsubsection{Implementation Approach in \texttt{zencrypted/rtp}}
+\begin{enumerate}
+    \item Signaling and control Protocol Data Units (PDUs) are defined using ASN.1 (ITU-T X.680) modules that align with the semantics of X.601 and X.609.x.
+    \item The system leverages N2O's ASN.1 binary formatter to compile signaling over WebSocket connections (Port 8081), eliminating text-based JSON overhead.
+    \item The C99 GStreamer port \texttt{gst.c} parses structured binary messages over \texttt{stdin}/\texttt{stdout}, conforming to the relayed multicast patterns of X.603 and peer protocols of X.609.4.
+    \item Telemetry structures and room-level events are mapped to X.609.8 and X.609.10 formats.
+    \item The media plane retains full alignment with ITU recommendations through the use of standard RTP/SRTP (RFC 3550).
+\end{enumerate}
+
+\newpage
 \subsubsection{Protocol Stack and Specifications}
 The monolith interfaces utilize a diverse set of network and inter-process communication (IPC) protocols
 to coordinate signaling, manage media routing, and report client telemetry.
@@ -234,90 +260,61 @@ its transport layer, and operational parameters.
 \caption{System Protocols and Inter-Process Specifications}
 \label{tab:protocols}
 \noindent\makebox[\textwidth][c]{
-\begin{tabular}{lp{1.5cm}llp{6.5cm}}
+\begin{tabular}{lp{2.8cm}llp{6.0cm}}
 \toprule
 Protocol                & Port       & STD      & Format    & Functional Description \\
 \midrule
-\textbf{GST IPC}        & UNIX Pipes & own      & Format    & Custom Erlang-to-C99 binary signaling exchange for SDP offers/answers and ICE candidates. \\
-\textbf{WS Signaling}   & WSS:8081   & own      & WSS       & Cowboy/N2O room pub/sub channel for user joins, leaves, and chat logs. \\
-\textbf{QoS Telemetry}  & WSS:8082   & own      & WSS       & Prioritized client connection statistics pumped to OpenTelemetry collector. \\
-\textbf{WebRTC SDP}     & UDP:49232  & RFC 8841 & SDP       & SCTP over DTLS. \\
-\textbf{WebRTC SDP}     & UDP:49232  & RFC 8866 & SDP       & Session negotiation declaring codecs (H.264/VP8/Opus) and media directions. \\
-\textbf{WebRTC ICE}     & UDP:3478   & RFC 8445 & STUN/TURN & RTP STUN Binding Attributes Dynamic network connectivity probe establishing optimal media pathways. \\
-\textbf{TURN Relay}     & UDP:5349   & RFC 8489 & STUN/TURN & SRTP media packets through \texttt{eturnal} when NAT/firewalls block P2P. \\
-\textbf{SRTP/SRTCP}     & UDP:5000   & RFC 3711 & SRTP/RTCP & Transports secure real-time audio and video tracks between endpoints and GStreamer. \\
+\textbf{GST IPC}        & UNIX Pipes & internal & Binary    & Custom Erlang-to-C99 port protocol for stdin/stdout signaling. \\
+\textbf{WS Signaling}   & WSS:8081   & RFC 6455 & JSON/ASN.1& Cowboy/N2O room session signaling for SDP and ICE candidate exchange. \\
+\textbf{QoS Telemetry}  & WSS:8082   & OTLP     & Protobuf  & Connection statistics and audio/video metrics sent to otel-collector. \\
+\textbf{STUN Query}     & UDP:3478   & RFC 8489 & STUN      & Resolves server-reflexive candidates (NAT public IP/port discovery). \\
+\textbf{TURN Relay}     & UDP/TCP:3478 & RFC 8656 & TURN      & Relays media packets through \texttt{eturnal} in unencrypted mode. \\
+\textbf{TURNS Relay}    & UDP/TCP:5349 & RFC 8656 & TURNS     & Relays media packets through \texttt{eturnal} over TLS/DTLS. \\
+\textbf{ICE Checks}     & UDP:Dynamic& RFC 8445 & STUN      & Connectivity checks sent directly between negotiated endpoint media ports. \\
+\textbf{SRTP/SRTCP}     & UDP:Dynamic& RFC 3711 & SRTP/RTCP & Transports encrypted audio/video tracks between endpoints and GStreamer. \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
 
-\subsubsection{JSON Replacement Strategy on Existing Connections}
-\label{sec:json-replacement}
+\subsubsection{ITU-T X.600-Series Conformance and WebRTC Mapping}
+\label{sec:x600-conformance}
 
-The current implementation uses JSON for several high-frequency control and signaling paths.
-We propose replacing these with structured binary formats based on relevant ITU-T X-series
-Recommendations (from \texttt{synrc.com/standards.txt}), particularly the multi-peer, group, and managed P2P frameworks.
+To establish a formal framework for multi-party real-time multimedia conferencing, the \texttt{rtp} signaling, orchestration, and telemetry protocols are aligned with the ITU-T X.600-series recommendations. This maps standard WebRTC sessions, events, and telemetry schemas to structured multi-peer, group management, and managed peer-to-peer protocols.
 
 \begin{table}[h]
 \centering
-\caption{JSON Replacement Using ITU-T X-Series Standards}
-\label{tab:json-replacement}
+\caption{Mapping WebRTC Protocols to ITU-T X-Series Frameworks}
+\label{tab:x600-mapping}
 \noindent\makebox[\textwidth][c]{
 \begin{tabular}{lll}
 \toprule
-Port & Current Format & Applicable ITU-T X-Recommendation(s) \\
+Channel & WebRTC Protocol Function & Applicable ITU-T X-Recommendation(s) \\
 \midrule
-8081 & JSON (N2O)  & X.601 (Multi-peer framework), X.602 (Group management), X.609.x (Managed P2P) \\
-Unix & Ad-hoc JSON & X.603 / X.603.1 / X.603.2 (Relayed multicast), X.609.3 / X.609.4 (streaming signalling/peer) \\
-8082 & JSON/OTLP   & X.609.8 / X.609.10 (Live data sources \& data streaming signaling) \\
-Room & JSON events & X.601 / X.602 (Multi-peer \& group management) \\
+Port 8081 & Cowboy/N2O WS Room signaling, SDP, ICE & X.601 (Multi-peer framework), X.602 (Group management) \\
+Unix Pipes & Erlang-to-C99 Local Port signaling & X.603 / X.603.1 / X.603.2 (Relayed multicast, N-plex) \\
+Port 8082 & OpenTelemetry metrics and traces (OTLP) & X.609.8 / X.609.10 (Live data sources \& streaming telemetry) \\
+Room Events & Pub/sub peer joined, peer left, and session state & X.601 / X.602 (Multi-peer and group session management) \\
+Media Path & GStreamer WebRTC stream compositing & X.609.3 / X.609.4 (Multimedia streaming and peer protocols) \\
 \bottomrule
 \end{tabular}
 }
 \end{table}
 
-\paragraph{Selected ITU-T X-Stack Standards}
-The following recommendations from the X-series provide a formal framework for group video conferencing:
-\begin{itemize}
-    \item \textbf{X.601} — Multi-peer communications framework
-    \item \textbf{X.602} — Group management protocol
-    \item \textbf{X.603, X.603.1, X.603.2} — Relayed multicast protocol (simplex / N-plex)
-    \item \textbf{X.604, X.604.1, X.604.2} — Mobile multicast communications
-    \item \textbf{X.605 -- X.608.1} — Enhanced Communications Transport Service (ECTS) for multicast
-    \item \textbf{X.609 -- X.609.10} — Managed peer-to-peer (P2P) communications (especially X.609.3/X.609.4
-                                        for multimedia streaming signaling and peer protocols)
-\end{itemize}
+\newpage
 
-\paragraph{Implementation Approach in \texttt{zencrypted/rtp}}
-\begin{enumerate}
-    \item Define signaling and control PDUs using ASN.1 (X.680) modules that align with the semantics of X.601 / X.609.x.
-    \item Use N2O's ASN.1 formatter to replace JSON on WebSocket connections (Port 8081).
-    \item Extend the C99 GStreamer port \texttt{gst.c} to use binary messages (inspired by X.603
-          relayed multicast and X.609.4 peer protocols) over stdin/stdout.
-    \item For telemetry and room events, adopt structures from X.609.8 / X.609.10.
-    \item Retain RTP/SRTP for the media plane (already ITU-aligned via RFC 3550).
-\end{enumerate}
-
- Expected outcomes: significantly reduced signaling overhead, formal compliance with ITU-T multi-peer
- frameworks, and improved scalability for high-density rooms.
 
 \subsubsection{Detailed Protocol Descriptions}
 
-\paragraph{1. WebRTC SDP \& ICE (RTP/RTCP Data)}
-The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling
-channel. It acts as the negotiation mechanism for media capabilities, where the GStreamer OS process
-outputs SDP offers containing its supported codecs (e.g., H.264, VP8, Opus) and payload types.
-The client browser responds with an SDP answer. Simultaneously, Interactive Connectivity
-Establishment (ICE) candidates are exchanged to discover the optimal network path. Once
-the ICE handshake completes, the actual media data is transmitted as encrypted SRTP (Secure
-Real-time Transport Protocol) and SRTCP packets over UDP.
+\paragraph{1. WebRTC SDP \& Candidate Gathering}
+The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling channel (WSS:8081) to negotiate media codecs and track directions. Concurrently, each endpoint's ICE agent gathers transport candidates from three sources: local interfaces (host candidates), public NAT reflections retrieved via STUN binding queries (RFC 8489) on port 3478 (server-reflexive candidates), and relay allocations obtained from the \texttt{eturnal} TURN server on port 3478/5349 (relayed candidates).
 
-\paragraph{2. TURN (Traversal Using Relays around NAT)}
-When direct Peer-to-Peer (P2P) UDP connections are blocked by restrictive enterprise firewalls
-or symmetric NATs, the system falls back to the \texttt{eturnal} TURN server. The TURN
-protocol (RFC 8656) encapsulates the SRTP media packets within its own framed binary format
-and relays them through port 3478 (UDP or TCP). This guarantees 100\% connectivity for all
-participants, albeit with a slight latency and bandwidth penalty due to the relay overhead.
+\paragraph{2. ICE Connectivity Checks and Prioritization}
+Interactive Connectivity Establishment (ICE, RFC 8445) pairs the gathered local candidates with remote candidates received via signaling. These candidate pairs are sorted in descending order of priority (preferring direct host-to-host routes over host-to-reflexive, and prioritizing relayed paths lowest). The ICE agent then performs connectivity checks by transmitting STUN binding request packets directly across all active candidate pairs. Once a pair receives a valid STUN binding response, the connection is validated.
+
+\paragraph{3. STUN-to-TURN Fallback Mechanics}
+The transition from direct P2P pathing (STUN/P2P) to relayed transport (TURN) is a deterministic outcome of the ICE candidate pair prioritization and timeout checks. If both endpoints are positioned behind symmetric NATs or restrictive enterprise firewalls, direct STUN binding checks between host or server-reflexive candidates will fail due to NAT port binding translation mismatch or packet drop policies. The ICE agent then falls back to the relayed candidate pair. In this state, media traffic is sent to the allocated socket on the \texttt{eturnal} TURN server (RFC 8656), which strips or applies the TURN framing headers and relays the encapsulated SRTP/SRTCP (RFC 3711) packets to the peer over port 3478 (UDP/TCP) or port 5349 (TURNS over TLS/DTLS).
+
 
 \paragraph{3. WebSocket API}
 The WebSocket (WS) API serves as the primary signaling and control plane, powered by the
@@ -333,6 +330,7 @@ and CPU utilization) to the \texttt{rtp-telemetry} OTLP Receiver via HTTPS/WSS (
 The payloads are serialized as Protocol Buffers (Protobuf) or JSON. This data is then ingested
 by the \texttt{otel-collector} and routed to Prometheus and OpenSearch for real-time observability in Grafana.
 
+\newpage
 \subsubsection{Signaling Sequence Flow}
 
 Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, WebRTC negotiation,

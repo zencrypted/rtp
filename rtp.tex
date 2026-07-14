@@ -28,7 +28,7 @@ Linux pods. By binding all participants of a room to the same pod instance using
 Sticky Sessions and disabling Erlang cluster distribution,
 the system scales horizontally without inter-node cluster link storms. Real-time video grid
 compositing (2x2 layout in 1080p) and audio mixing are delegated directly to a local,
-lightweight C99 GStreamer port binary, exchanging WebRTC SDP/ICE signaling lines directly over
+lightweight C99 GStreamer port binary \texttt{gst}, exchanging WebRTC SDP/ICE signaling lines directly over
 standard input and output pipes. We show that this model supports up to 10,000 concurrent signaling
 connections and reduces media encoding resource requirements by over 60\% when hardware-accelerated.
 \end{abstract}
@@ -220,7 +220,7 @@ Where $P$ is the total count of running replicas. This ensures that:
 
 \subsection{WebRTC Signaling Loop \& C99 Port Protocol}
 
-The C99 GStreamer binary (\texttt{gst}) is spawned as an OS process by the Erlang supervisor.
+The C99 GStreamer binary \texttt{gst} is spawned as an OS process by the Erlang supervisor.
 Rather than linking against heavy socket libraries, it reads signaling data from \texttt{stdin} and outputs event payloads to \texttt{stdout}.
 
 \subsubsection{Protocol Stack and Specifications}
@@ -292,7 +292,7 @@ The following recommendations from the X-series provide a formal framework for g
 \begin{enumerate}
     \item Define signaling and control PDUs using ASN.1 (X.680) modules that align with the semantics of X.601 / X.609.x.
     \item Use N2O's ASN.1 formatter to replace JSON on WebSocket connections (Port 8081).
-    \item Extend the C99 GStreamer port (\texttt{gst.c}) to use binary messages (inspired by X.603
+    \item Extend the C99 GStreamer port \texttt{gst.c} to use binary messages (inspired by X.603
           relayed multicast and X.609.4 peer protocols) over stdin/stdout.
     \item For telemetry and room events, adopt structures from X.609.8 / X.609.10.
     \item Retain RTP/SRTP for the media plane (already ITU-aligned via RFC 3550).
@@ -649,7 +649,7 @@ a cost-effective, low-memory 40-node cluster.
 
 The \texttt{rtp} architecture demonstrates that video conferencing signaling and media compositing
 can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks
-and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system
+and headless browsers with local \texttt{gst} C99 binary opened as port interfaces and Ingress Room Sticky Sessions, the system
 avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective
 SRE model for secure networks.
 \begin{thebibliography}{99}

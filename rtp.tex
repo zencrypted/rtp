@@ -39,22 +39,64 @@ connections and reduces media encoding resource requirements by over 60\% when h
 \newpage
 \section{Introduction}
 
-Real-time audio and video conferencing in distributed networks requires both high reliability (liveness) and low computational overhead (high room density per physical host). The critical importance of robust, low-latency communication infrastructure was demonstrated globally in March 2020, when pandemic lockdowns forced entire institutions online. Overnight, daily meeting participants on platforms like Zoom skyrocketed from 10 million to 300 million, Google Meet traffic crossed 100 million daily users, and Microsoft Teams usage grew by 894\% \cite{seanslabwebrtc}. Rather than a triumph of ad-hoc application engineering, this massive scale was made possible by the standardization of WebRTC (Web Real-Time Communication), which enabled browsers to capture, encrypt, and stream real-time audio and video peer-to-peer with sub-second latency.
+Real-time audio and video conferencing in distributed networks requires both high reliability (liveness)
+and low computational overhead (high room density per physical host). The critical importance of robust,
+low-latency communication infrastructure was demonstrated globally in March 2020, when pandemic lockdowns
+forced entire institutions online. Overnight, daily meeting participants on platforms like Zoom skyrocketed
+from 10 million to 300 million, Google Meet traffic crossed 100 million daily users, and Microsoft Teams
+usage grew by 894\% \cite{seanslabwebrtc}. Rather than a triumph of ad-hoc application engineering, this
+massive scale was made possible by the standardization of WebRTC (Web Real-Time Communication),
+which enabled browsers to capture, encrypt, and stream real-time audio and video peer-to-peer with sub-second latency.
 
 \subsection{Historical Precursors and GStreamer Integration}
 
-The origin of WebRTC dates back to Stockholm in 1999 with the founding of Global IP Solutions (GIPS) by signal processing researchers Roar Hagen, Bastiaan Kleijn, Espen Fjogstad, and Ivar T. Hognestad \cite{seanslabwebrtc}. GIPS identified that VoIP quality over packet-switched networks was primarily a signal processing problem rather than a networking issue, combatting packet loss, jitter, clock drift, and acoustic echo using adaptive algorithms. They developed legendary narrowband and wideband codecs like iLBC (RFC 3951) and iSAC, along with advanced media engines for acoustic echo cancellation (AEC), noise suppression, and automatic gain control (AGC). Licensing their software to Yahoo!, AOL, Cisco WebEx, and Google Talk, GIPS became the industry reference stack.
+The origin of WebRTC dates back to Stockholm in 1999 with the founding of Global IP Solutions (GIPS)
+by signal processing researchers Roar Hagen, Bastiaan Kleijn, Espen Fjogstad, and Ivar T. Hognestad
+\cite{seanslabwebrtc}. GIPS identified that VoIP quality over packet-switched networks was primarily
+a signal processing problem rather than a networking issue, combatting packet loss, jitter, clock drift,
+and acoustic echo using adaptive algorithms. They developed legendary narrowband and wideband codecs
+like iLBC (RFC 3951) and iSAC, along with advanced media engines for acoustic echo cancellation (AEC),
+noise suppression, and automatic gain control (AGC). Licensing their software to Yahoo!, AOL, Cisco WebEx,
+and Google Talk, GIPS became the industry reference stack.
 
-In May 2010, Google acquired GIPS for \$68.2 million, and subsequently open-sourced the entire engine on May 31, 2011, under the leadership of Harald Alvestrand and Justin Uberti \cite{seanslabwebrtc}. This open-source release formed the technical foundation for the dual-track standardization process: the W3C WebRTC Working Group (defining the client JavaScript API) and the IETF RTCWeb Working Group (defining the underlying protocols). The subsequent decade saw intense engineering battles, including the Mandatory To Implement (MTI) video codec war between Google's royalty-free VP8 codec and the telecom industry's H.264 standard, culminating in the 2014 compromise to support both codecs. This was followed by the Session Description Protocol (SDP) negotiation debates, leading to Microsoft's brief ORTC (Object RTC) implementation in Edge and the eventual hybrid APIs adopted in WebRTC 1.0. Crucially, to enable WebRTC capabilities outside of traditional browser engines, early implementations like Ericsson Research's OpenWebRTC project \cite{openwebrtc} pioneered the use of the GStreamer multimedia framework to process media tracks natively on mobile devices and servers, directly prefiguring standalone native MCU systems.
+In May 2010, Google acquired GIPS for \$68.2 million, and subsequently open-sourced the entire engine
+on May 31, 2011, under the leadership of Harald Alvestrand and Justin Uberti \cite{seanslabwebrtc}.
+This open-source release formed the technical foundation for the dual-track standardization process:
+the W3C WebRTC Working Group (defining the client JavaScript API) and the IETF RTCWeb Working Group
+(defining the underlying protocols). The subsequent decade saw intense engineering battles, including
+the Mandatory To Implement (MTI) video codec war between Google's royalty-free VP8 codec and the
+telecom industry's H.264 standard, culminating in the 2014 compromise to support both codecs.
+This was followed by the Session Description Protocol (SDP) negotiation debates, leading to
+Microsoft's brief ORTC (Object RTC) implementation in Edge and the eventual hybrid APIs adopted
+in WebRTC 1.0. Crucially, to enable WebRTC capabilities outside of traditional browser engines,
+early implementations like Ericsson Research's OpenWebRTC project \cite{openwebrtc} pioneered
+the use of the GStreamer multimedia framework to process media tracks natively on mobile devices
+and servers, directly prefiguring standalone native MCU systems.
 
 \subsection{Conferencing Topologies: P2P, SFU, and MCU}
 
 Modern real-time communication architectures leverage three primary media distribution topologies:
 
 \begin{enumerate}
-    \item \textbf{Direct Peer-to-Peer (P2P)}: In 1-on-1 configurations ($K=2$), participants stream media directly between endpoints (or via STUN/TURN relay) bypassing the media server entirely. Our orchestrator detects this case dynamically, configuring direct signaling channels. This simplified P2P connection minimizes server resource usage to near zero, providing a highly efficient baseline fallback.
-    \item \textbf{Selective Forwarding Unit (SFU)}: In multi-party conferences ($K \ge 3$), SFUs route separate audio and video packets from each publisher to all other participants without transcoding. While this saves server CPU cycles, it shifts the computational and bandwidth burden to endpoints, which must decode $K-1$ incoming streams and handle network fluctuations for each. In resource-constrained enterprise networks, mobile clients, and high-security endpoints, this multi-decoder load is a major failure point. Thus, the SFU model can be completely abandoned for this architecture.
-    \item \textbf{Multipoint Control Unit (MCU)}: To ensure $O(1)$ client bandwidth and decoding complexity, we enforce a centralized MCU model. The server decodes all incoming feeds, mixes audio tracks, composites the video streams into a single grid canvas, and encodes a unified broadcast feed back to all endpoints. By running this pipeline in C99 using GStreamer and sharding room instances horizontally across stateless Alpine Linux pods, we bypass the traditional CPU bottlenecks of monolithic MCUs, making the SFU completely obsolete for high-density, secure deployments.
+    \item \textbf{Direct Peer-to-Peer (P2P)}: In 1-on-1 configurations ($K=2$), participants stream
+          media directly between endpoints (or via STUN/TURN relay) bypassing the media server
+          entirely. Our orchestrator detects this case dynamically, configuring direct signaling
+          channels. This simplified P2P connection minimizes server resource usage to near zero,
+          providing a highly efficient baseline fallback.
+    \item \textbf{Selective Forwarding Unit (SFU)}: In multi-party conferences ($K \ge 3$), SFUs
+          route separate audio and video packets from each publisher to all other participants
+          without transcoding. While this saves server CPU cycles, it shifts the computational
+          and bandwidth burden to endpoints, which must decode $K-1$ incoming streams and handle
+          network fluctuations for each. In resource-constrained enterprise networks, mobile
+          clients, and high-security endpoints, this multi-decoder load is a major failure point.
+          Thus, the SFU model can be completely abandoned for this architecture.
+    \item \textbf{Multipoint Control Unit (MCU)}: To ensure $O(1)$ client bandwidth and decoding
+          complexity, we enforce a centralized MCU model. The server decodes all incoming feeds,
+          mixes audio tracks, composites the video streams into a single grid canvas, and encodes
+          a unified broadcast feed back to all endpoints. By running this pipeline in C99 using
+          GStreamer and sharding room instances horizontally across stateless Alpine Linux pods,
+          we bypass the traditional CPU bottlenecks of monolithic MCUs, making the SFU completely
+          obsolete for high-density, secure deployments.
 \end{enumerate}
 
 \newpage
@@ -239,40 +281,62 @@ The following recommendations from the X-series provide a formal framework for g
 \begin{itemize}
     \item \textbf{X.601} — Multi-peer communications framework
     \item \textbf{X.602} — Group management protocol
-    \item \textbf{X.603 / X.603.1 / X.603.2} — Relayed multicast protocol (simplex / N-plex)
-    \item \textbf{X.604 / X.604.1 / X.604.2} — Mobile multicast communications
+    \item \textbf{X.603, X.603.1, X.603.2} — Relayed multicast protocol (simplex / N-plex)
+    \item \textbf{X.604, X.604.1, X.604.2} — Mobile multicast communications
     \item \textbf{X.605 -- X.608.1} — Enhanced Communications Transport Service (ECTS) for multicast
-    \item \textbf{X.609 -- X.609.10} — Managed peer-to-peer (P2P) communications (especially X.609.3 / X.609.4 for multimedia streaming signaling and peer protocols)
+    \item \textbf{X.609 -- X.609.10} — Managed peer-to-peer (P2P) communications (especially X.609.3/X.609.4
+                                        for multimedia streaming signaling and peer protocols)
 \end{itemize}
 
 \paragraph{Implementation Approach in \texttt{zencrypted/rtp}}
 \begin{enumerate}
     \item Define signaling and control PDUs using ASN.1 (X.680) modules that align with the semantics of X.601 / X.609.x.
     \item Use N2O's ASN.1 formatter to replace JSON on WebSocket connections (Port 8081).
-    \item Extend the C99 GStreamer port (\texttt{gst.c}) to use binary messages (inspired by X.603 relayed multicast and X.609.4 peer protocols) over stdin/stdout.
+    \item Extend the C99 GStreamer port (\texttt{gst.c}) to use binary messages (inspired by X.603
+          relayed multicast and X.609.4 peer protocols) over stdin/stdout.
     \item For telemetry and room events, adopt structures from X.609.8 / X.609.10.
     \item Retain RTP/SRTP for the media plane (already ITU-aligned via RFC 3550).
 \end{enumerate}
 
- Expected outcomes: significantly reduced signaling overhead, formal compliance with ITU-T multi-peer frameworks, and improved scalability for high-density rooms.
+ Expected outcomes: significantly reduced signaling overhead, formal compliance with ITU-T multi-peer
+ frameworks, and improved scalability for high-density rooms.
 
 \subsubsection{Detailed Protocol Descriptions}
 
 \paragraph{1. WebRTC SDP \& ICE (RTP/RTCP Data)}
-The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling channel. It acts as the negotiation mechanism for media capabilities, where the GStreamer OS process outputs SDP offers containing its supported codecs (e.g., H.264, VP8, Opus) and payload types. The client browser responds with an SDP answer. Simultaneously, Interactive Connectivity Establishment (ICE) candidates are exchanged to discover the optimal network path. Once the ICE handshake completes, the actual media data is transmitted as encrypted SRTP (Secure Real-time Transport Protocol) and SRTCP packets over UDP.
+The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling
+channel. It acts as the negotiation mechanism for media capabilities, where the GStreamer OS process
+outputs SDP offers containing its supported codecs (e.g., H.264, VP8, Opus) and payload types.
+The client browser responds with an SDP answer. Simultaneously, Interactive Connectivity
+Establishment (ICE) candidates are exchanged to discover the optimal network path. Once
+the ICE handshake completes, the actual media data is transmitted as encrypted SRTP (Secure
+Real-time Transport Protocol) and SRTCP packets over UDP.
 
 \paragraph{2. TURN (Traversal Using Relays around NAT)}
-When direct Peer-to-Peer (P2P) UDP connections are blocked by restrictive enterprise firewalls or symmetric NATs, the system falls back to the \texttt{eturnal} TURN server. The TURN protocol (RFC 8656) encapsulates the SRTP media packets within its own framed binary format and relays them through port 3478 (UDP or TCP). This guarantees 100\% connectivity for all participants, albeit with a slight latency and bandwidth penalty due to the relay overhead.
+When direct Peer-to-Peer (P2P) UDP connections are blocked by restrictive enterprise firewalls
+or symmetric NATs, the system falls back to the \texttt{eturnal} TURN server. The TURN
+protocol (RFC 8656) encapsulates the SRTP media packets within its own framed binary format
+and relays them through port 3478 (UDP or TCP). This guarantees 100\% connectivity for all
+participants, albeit with a slight latency and bandwidth penalty due to the relay overhead.
 
 \paragraph{3. WebSocket API}
-The WebSocket (WS) API serves as the primary signaling and control plane, powered by the Cowboy web server and the N2O framework. It operates over WSS (Port 8081) using a binary-encoded or JSON text payload. The WS connection is stateful and sticky-routed to the specific Erlang node hosting the room. It handles pub/sub events such as \texttt{peer\_joined}, \texttt{peer\_left}, chat messages, and the critical SDP/ICE signaling payloads.
+The WebSocket (WS) API serves as the primary signaling and control plane, powered by the
+Cowboy web server and the N2O framework. It operates over WSS (Port 8081) using a binary-encoded
+or JSON text payload. The WS connection is stateful and sticky-routed to the specific Erlang node
+hosting the room. It handles pub/sub events such as \texttt{peer\_joined}, \texttt{peer\_left},
+chat messages, and the critical SDP/ICE signaling payloads.
 
 \paragraph{4. Telemetry (OTLP)}
-The system employs the OpenTelemetry Protocol (OTLP) to export QoS metrics, traces, and logs. Client browsers and the backend Erlang nodes stream telemetry data (such as packet loss, jitter, and CPU utilization) to the \texttt{rtp-telemetry} OTLP Receiver via HTTPS/WSS (Port 8082). The payloads are serialized as Protocol Buffers (Protobuf) or JSON. This data is then ingested by the \texttt{otel-collector} and routed to Prometheus and OpenSearch for real-time observability in Grafana.
+The system employs the OpenTelemetry Protocol (OTLP) to export QoS metrics, traces, and logs.
+Client browsers and the backend Erlang nodes stream telemetry data (such as packet loss, jitter,
+and CPU utilization) to the \texttt{rtp-telemetry} OTLP Receiver via HTTPS/WSS (Port 8082).
+The payloads are serialized as Protocol Buffers (Protobuf) or JSON. This data is then ingested
+by the \texttt{otel-collector} and routed to Prometheus and OpenSearch for real-time observability in Grafana.
 
 \subsubsection{Signaling Sequence Flow}
 
-Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, WebRTC negotiation, media composition, and session finalization.
+Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, WebRTC negotiation,
+media composition, and session finalization.
 
 \begin{figure}[h]
 \centering
@@ -315,7 +379,8 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
     \draw[arrow] (4,-8) -- node[above, scale=0.8] {stdin: \{"type":"sdp\_answer","sdp":"..."\}} (12,-8);
 
     % Step 6
-    \node[draw, fill=green!10, text width=8cm, align=center, scale=0.8] at (6,-9) {RTP Audio/Video Stream active. Composite Mixer rendering to file.};
+    \node[draw, fill=green!10, text width=8cm, align=center, scale=0.8] at (6,-9) {RTP Audio/Video
+       Stream active. Composite Mixer rendering to file.};
 
 \end{tikzpicture}
 \caption{Signaling sequence showing local Port I/O communication between Erlang and the C99 GStreamer binary.}
@@ -325,11 +390,15 @@ Figure~\ref{fig:sequence} illustrates the signaling loop during room startup, We
 \newpage
 \subsection{Multipoint Media Composition}
 
-The GStreamer media broker executes video grid compositing and audio conferencing concurrently. The media plane runs as a single GStreamer pipeline initialized in a C99 OS port process.
+The GStreamer media broker executes video grid compositing and audio conferencing concurrently.
+The media plane runs as a single GStreamer pipeline initialized in a C99 OS port process.
 
 \subsubsection{Video Matrix Grid Compositing}
 
-Incoming H.264/VP8 video packets are decoded into raw YUV frames. The compositor element (\texttt{compositor}) maps each input stream index $i \in \{1, 2, 3\}$ to a quadrant layout inside a unified 1080p canvas ($W_{\text{out}} = 1920$, $H_{\text{out}} = 1080$). The dimensions of each video frame are scaled to $w = 960$ and $h = 540$. The placement coordinates $(x_i, y_i)$ are formulated as:
+Incoming H.264/VP8 video packets are decoded into raw YUV frames. The compositor element (\texttt{compositor})
+maps each input stream index $i \in \{1, 2, 3\}$ to a quadrant layout inside a unified 1080p
+canvas ($W_{\text{out}} = 1920$, $H_{\text{out}} = 1080$). The dimensions of each video frame
+are scaled to $w = 960$ and $h = 540$. The placement coordinates $(x_i, y_i)$ are formulated as:
 
 \begin{align}
 x_i &= (i \pmod 2) \cdot w \\
@@ -349,13 +418,16 @@ The resulting video layout is composed as shown in Equation~\ref{eq:layout}:
 
 \subsubsection{Audio Mixing \& Summation}
 
-Audio tracks are mixed using GStreamer's \texttt{audiomixer} element. Incoming Opus packets are decoded into linear pulse-code modulated (LPCM) audio buffers. The mixed audio signal $S_{\text{mixed}}(t)$ at timestamp $t$ is the sum of the $K$ active participant signals:
+Audio tracks are mixed using GStreamer's \texttt{audiomixer} element. Incoming Opus packets are decoded
+into linear pulse-code modulated (LPCM) audio buffers. The mixed audio signal $S_{\text{mixed}}(t)$ at
+timestamp $t$ is the sum of the $K$ active participant signals:
 
 \begin{equation}
 S_{\text{mixed}}(t) = \sum_{i=1}^{K} S_i(t)
 \end{equation}
 
-To prevent digital clipping/overflow, the mixed LPCM buffer passes through a limiter/clipper stage before being re-encoded into Opus for WebRTC downstream broadcast:
+To prevent digital clipping/overflow, the mixed LPCM buffer passes through a limiter/clipper stage
+before being re-encoded into Opus for WebRTC downstream broadcast:
 
 \begin{equation}
 S_{\text{output}}(t) = \text{Clamp}(S_{\text{mixed}}(t), -S_{\text{max}}, S_{\text{max}})
@@ -367,27 +439,52 @@ S_{\text{output}}(t) = \text{Clamp}(S_{\text{mixed}}(t), -S_{\text{max}}, S_{\te
 The implementation in \texttt{c\_src/gst.c} integrates WebRTC media reception, grid composition, and recording:
 
 \begin{enumerate}
-    \item \textbf{Continuous Live Sources}: To prevent preroll deadlocks when no peers are connected, the pipeline initializes with a continuous static background black video (\texttt{videotestsrc pattern=black}) and audio silence (\texttt{audiotestsrc volume=0}) bound permanently to pad \texttt{sink\_0} on the compositor and audiomixer.
-    \item \textbf{Explicit Layering (Z-Ordering)}: GStreamer's \texttt{compositor} layers input pads according to the \texttt{zorder} property. The background pad is configured with $\text{zorder} = 1$. When a dynamic peer video track is decoded in the \texttt{on\_decoded\_pad} callback, the calculated compositor pad is assigned an explicit, higher $\text{zorder} = \text{idx} + 10$ (e.g., $11, 12, 13$), layering it on top of the black canvas.
-    \item \textbf{Loop Decoupling and Leaky Queues}: Because each peer's \texttt{webrtcbin} acts as both a media source and a broadcast destination, the graph contains feedback loops. We introduce independent \texttt{tee} elements (\texttt{vtee}/\texttt{atee}) to broadcast the mixed grid back to all clients. Each broadcast branch is isolated via dynamic queues (\texttt{vqueue\_<peer\_id>}) configured with leaky downstream properties (\texttt{leaky=2}) and restricted capacity (\texttt{max-size-buffers=60}), preventing slow or disconnected peers from blocking the upstream compositor.
-    \item \textbf{Dynamic Peer Lifecycle Management}: We track peer resources in a structured \texttt{PeerInfo} context. On receiving a \texttt{"peer\_left"} signal via \texttt{stdin}, GStreamer invokes \texttt{cleanup\_peer()}, which systematically unlinks pads, releases requested compositor/mixer pads, destroys the peer's converter and queue elements, and frees its \texttt{webrtcbin}. This prevents grid placement leakage and ensures memory and CPU utilization scale with the active stream count rather than historical connection counts.
-    \item \textbf{Safe Unix Signal finalization}: Direct Unix signals run outside the main loop thread and are unsafe to manipulate GStreamer bins directly. We use GLib's thread-safe \texttt{g\_unix\_signal\_add} to schedule signal handling on the main event thread. When a termination signal is received, the handler sends an \texttt{EOS} event specifically to the recording muxer (\texttt{mp4mux}), which flushes standard MP4 index trailers safely before exit.
+    \item \textbf{Continuous Live Sources}: To prevent preroll deadlocks when no peers are connected,
+           the pipeline initializes with a continuous static background black video (\texttt{videotestsrc pattern=black})
+           and audio silence (\texttt{audiotestsrc volume=0}) bound permanently to pad \texttt{sink\_0}
+           on the compositor and audiomixer.
+    \item \textbf{Explicit Layering (Z-Ordering)}: GStreamer's \texttt{compositor} layers input pads
+           according to the \texttt{zorder} property. The background pad is configured with $\text{zorder} = 1$.
+           When a dynamic peer video track is decoded in the \texttt{on\_decoded\_pad} callback, the calculated
+           compositor pad is assigned an explicit, higher $\text{zorder} = \text{idx} + 10$ (e.g., $11, 12, 13$),
+           layering it on top of the black canvas.
+    \item \textbf{Loop Decoupling and Leaky Queues}: Because each peer's \texttt{webrtcbin} acts as both a media
+          source and a broadcast destination, the graph contains feedback loops. We introduce
+          independent \texttt{tee} elements (\texttt{vtee}/\texttt{atee}) to broadcast the mixed grid back
+          to all clients. Each broadcast branch is isolated via dynamic queues (\texttt{vqueue\_<peer\_id>})
+          configured with leaky downstream properties (\texttt{leaky=2}) and restricted capacity
+          (\texttt{max-size-buffers=60}), preventing slow or disconnected peers from blocking the upstream compositor.
+    \item \textbf{Dynamic Peer Lifecycle Management}: We track peer resources in a structured \texttt{PeerInfo}
+          context. On receiving a \texttt{"peer\_left"} signal via \texttt{stdin}, GStreamer
+          invokes \texttt{cleanup\_peer()}, which systematically unlinks pads, releases requested
+          compositor/mixer pads, destroys the peer's converter and queue elements, and frees
+          its \texttt{webrtcbin}. This prevents grid placement leakage and ensures memory and
+          CPU utilization scale with the active stream count rather than historical connection counts.
+    \item \textbf{Safe Unix Signal finalization}: Direct Unix signals run outside the main loop
+          thread and are unsafe to manipulate GStreamer bins directly. We use GLib's
+          thread-safe \texttt{g\_unix\_signal\_add} to schedule signal handling on the main event thread.
+          When a termination signal is received, the handler sends an \texttt{EOS} event specifically
+          to the recording muxer (\texttt{mp4mux}), which flushes standard MP4 index trailers safely before exit.
 \end{enumerate}
 
 \newpage
 \section{Capacity, Telemetry and Metrics}
 
-This section evaluates resource provisioning and cluster capacity for a target workload of \textbf{1,000 concurrent MCU rooms} (compositing multiple 720p streams @ 30~fps into unified outputs) with hardware acceleration. The target distribution comprises:
+This section evaluates resource provisioning and cluster capacity for a target
+workload of \textbf{1,000 concurrent MCU rooms} (compositing multiple 720p streams @ 30~fps into
+unified outputs) with hardware acceleration. The target distribution comprises:
 \begin{itemize}
     \item \textbf{80\% (800 rooms)}: 6-participant rooms.
     \item \textbf{20\% (200 rooms)}: 20-participant rooms.
 \end{itemize}
 
-To satisfy these requirements while minimizing costs, we specify a heterogeneous GPU-accelerated cluster consisting of \textbf{40 physical nodes}: 20 Small Nodes and 20 Big Nodes.
+To satisfy these requirements while minimizing costs, we specify a heterogeneous GPU-accelerated
+cluster consisting of \textbf{40 physical nodes}: 20 Small Nodes and 20 Big Nodes.
 
 \subsection{Node Specifications}
 
-Table~\ref{tab:node_specs} outlines the hardware profiles for the Small and Big nodes configured with GPU acceleration and cost-effective DDR4 memory.
+Table~\ref{tab:node_specs} outlines the hardware profiles for the Small and Big nodes configured
+with GPU acceleration and cost-effective DDR4 memory.
 
 \begin{table}[htbp]
 \centering
@@ -411,7 +508,9 @@ Storage & 256\,GB NVMe SSD & 512\,GB NVMe SSD \\
 
 \subsection{Per-Node and Cluster Capacity}
 
-Under GPU acceleration, decoding is performed via NVDEC and encoding via NVENC, drastically reducing CPU core utilisation. Table~\ref{tab:node_capacity} lists the real-time room capacity per node type, and Table~\ref{tab:cluster_capacity} summarizes the total cluster capacity and resource footprint.
+Under GPU acceleration, decoding is performed via NVDEC and encoding via NVENC, drastically
+reducing CPU core utilisation. Table~\ref{tab:node_capacity} lists the real-time room capacity
+per node type, and Table~\ref{tab:cluster_capacity} summarizes the total cluster capacity and resource footprint.
 
 \begin{table}[htbp]
 \centering
@@ -470,53 +569,89 @@ For a Small Node hosting $R = 45$ rooms with $K = 6$ participants each:
     \item $M_{\text{base\_gst}} \approx 120$~MB (base GStreamer and pipeline structures).
     \item $M_{\text{peer\_gst}} \approx 35$~MB (buffers and decode pipelines per 720p stream).
     \item $M_{\text{gst}}(6) = 120 + 6 \cdot 35 = 330$~MB per room.
-    \item $M_{\text{total}} \approx 45 \cdot (330 + 0.005) \approx 14.85$~GB of heap/process memory, easily fitting within the 64--96\,GB DDR4 Small Node configuration.
+    \item $M_{\text{total}} \approx 45 \cdot (330 + 0.005) \approx 14.85$~GB of heap/process memory,
+          easily fitting within the 64--96\,GB DDR4 Small Node configuration.
 \end{itemize}
 
 Similarly, for a Big Node hosting $R = 12$ rooms with $K = 20$ participants each:
 \begin{itemize}
     \item $M_{\text{gst}}(20) = 120 + 20 \cdot 35 = 820$~MB per room.
-    \item $M_{\text{total}} \approx 12 \cdot (820 + 0.005) \approx 9.84$~GB process RAM, fitting well within the 128\,GB DDR4 specification. The remaining host memory provides ample caching, OS buffers, and network ring buffers.
+    \item $M_{\text{total}} \approx 12 \cdot (820 + 0.005) \approx 9.84$~GB process RAM,
+          fitting well within the 128\,GB DDR4 specification. The remaining host memory
+          provides ample caching, OS buffers, and network ring buffers.
 \end{itemize}
 
 \subsubsection{CPU and GPU Offloading Model}
 
-With GPU-offloaded media pipelines, the total CPU load $C_{\text{total}}$ remains low because the heavy matrix composition, pixel format conversion, and H.264 encoding are executed on CUDA and NVENC. The node's processing capability is instead bound by the GPU's hardware session limits (NVENC concurrent streams) and network throughput.
+With GPU-offloaded media pipelines, the total CPU load $C_{\text{total}}$ remains low because
+the heavy matrix composition, pixel format conversion, and H.264 encoding are executed on CUDA
+and NVENC. The node's processing capability is instead bound by the GPU's hardware session
+limits (NVENC concurrent streams) and network throughput.
 
 The network throughput $T_{\text{net}}$ per node is defined by incoming and outgoing media streams:
 \begin{equation}
 T_{\text{net}} = R \cdot \left( K \cdot B_{\text{in}} + B_{\text{out}} \right)
 \end{equation}
-Where $B_{\text{in}}$ is the incoming client bitrate (1.5~Mbps H.264 720p) and $B_{\text{out}}$ is the mixed output canvas bitrate (4.0~Mbps 1080p).
+Where $B_{\text{in}}$ is the incoming client bitrate (1.5~Mbps H.264 720p) and $B_{\text{out}}$
+is the mixed output canvas bitrate (4.0~Mbps 1080p).
 \begin{itemize}
-    \item \textbf{Small Node Traffic}: $45 \cdot (6 \cdot 1.5 + 4.0) = 585$~Mbps. This is well within the 25--40\,Gbps network interface capacity.
-    \item \textbf{Big Node Traffic}: $12 \cdot (20 \cdot 1.5 + 4.0) = 408$~Mbps. This is comfortably supported by the 40--100\,Gbps interfaces, ensuring no network queuing jitter.
+    \item \textbf{Small Node Traffic}: $45 \cdot (6 \cdot 1.5 + 4.0) = 585$~Mbps.
+          This is well within the 25--40\,Gbps network interface capacity.
+    \item \textbf{Big Node Traffic}: $12 \cdot (20 \cdot 1.5 + 4.0) = 408$~Mbps.
+          This is comfortably supported by the 40--100\,Gbps interfaces, ensuring no network queuing jitter.
 \end{itemize}
 
 \subsection{Systems Soundness \& Liveness Analysis}
 
 \subsubsection*{HPA Oscillation (Thundering Herd)}
 
-Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU limits (e.g., 80\% target) creates scaling instabilities when CPU is offloaded to GPUs. Because CPU utilization remains low under hardware acceleration, standard HPA fails to react to room saturation. The autoscaling algorithm must instead utilize custom metrics mapped directly to active GStreamer mixers (\texttt{active\_gst\_mixers}) and GPU memory utilization.
+Configuring Kubernetes Horizontal Pod Autoscaling (HPA) against standard CPU limits
+(e.g., 80\% target) creates scaling instabilities when CPU is offloaded to GPUs.
+Because CPU utilization remains low under hardware acceleration, standard HPA fails
+to react to room saturation. The autoscaling algorithm must instead utilize custom
+metrics mapped directly to active GStreamer mixers (\texttt{active\_gst\_mixers})
+and GPU memory utilization.
 
 \subsubsection*{Local Database Isolation (No Database Clustering)}
 
-Under our sharded node model, Mnesia runs strictly as a local persistent storage database inside each pod's local volume. Because Erlang nodes do not form a distribution cluster, database transaction locking and schema updates are restricted to the local host. This completely avoids split-brain partitions, node discovery synchronization issues, and cluster-wide database deadlocks during rapid scale-up/down events.
+Under our sharded node model, Mnesia runs strictly as a local persistent storage
+database inside each pod's local volume. Because Erlang nodes do not form a
+distribution cluster, database transaction locking and schema updates are
+restricted to the local host. This completely avoids split-brain partitions,
+node discovery synchronization issues, and cluster-wide database deadlocks
+during rapid scale-up/down events.
 
 \subsubsection*{Scale-Out Architecture Bottlenecks at 1000+ Rooms}
 
 When scaling the cluster horizontally to support $R = 1,000$ active rooms across the 40 GPU-accelerated nodes:
 \begin{enumerate}
-    \item \textbf{Erlang Distribution Overhead Bypassed}: By routing all room participants to the same node via Ingress Sticky Session hashing, signaling is fully handled locally in-memory. Consequently, the Erlang distribution mechanism is completely disabled (the nodes run with \texttt{-no\_distribution}), totally avoiding quadratic $O(P^2)$ node connection storms.
-    \item \textbf{Mnesia Transaction Locking Isolated}: Since Mnesia runs as a purely local database on each isolated host, transaction lock contention is strictly confined to the local node's processes, eliminating distributed two-phase commit latency.
-    \item \textbf{Network Port \& Bandwidth Saturation}: At an average stream bitrate of $1.5$~Mbps, the aggregate network ingestion throughput reaches $4,000 \times 1.5\text{ Mbps} = 6.0$~Gbps. SREs must deploy network interfaces using \texttt{hostNetwork} configurations with SRIOV-enabled interfaces to bypass container network encapsulation.
+    \item \textbf{Erlang Distribution Overhead Bypassed}:
+          By routing all room participants to the same node via Ingress Sticky Session hashing,
+          signaling is fully handled locally in-memory. Consequently, the Erlang distribution
+          mechanism is completely disabled (the nodes run with \texttt{-no\_distribution}),
+          totally avoiding quadratic $O(P^2)$ node connection storms.
+    \item \textbf{Mnesia Transaction Locking Isolated}: Since Mnesia runs as a purely local
+          database on each isolated host, transaction lock contention is strictly confined
+          to the local node's processes, eliminating distributed two-phase commit latency.
+    \item \textbf{Network Port \& Bandwidth Saturation}: At an average stream bitrate of
+          $1.5$~Mbps, the aggregate network ingestion throughput reaches $4,000 \times 1.5\text{ Mbps} = 6.0$~Gbps.
+          SREs must deploy network interfaces using \texttt{hostNetwork} configurations
+          with SRIOV-enabled interfaces to bypass container network encapsulation.
 \end{enumerate}
 
 \section{Conclusion}
 
-The proposed monolithic architecture is highly sound for large-scale signaling and STUN/TURN routing, easily supporting over 10,000 concurrent user events. By transitioning to hardware-accelerated video compositing (using NVIDIA NVENC and CUDA offloading) and partitioning media processing dynamically between Small and Big nodes, the system achieves the target scale of 1,000 concurrent rooms within a cost-effective, low-memory 40-node cluster.
+The proposed monolithic architecture is highly sound for large-scale signaling and STUN/TURN routing,
+easily supporting over 10,000 concurrent user events. By transitioning to hardware-accelerated video
+compositing (using NVIDIA NVENC and CUDA offloading) and partitioning media processing dynamically
+between Small and Big nodes, the system achieves the target scale of 1,000 concurrent rooms within
+a cost-effective, low-memory 40-node cluster.
 
-The \texttt{rtp} architecture demonstrates that video conferencing signaling and media compositing can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective SRE model for secure networks.
+The \texttt{rtp} architecture demonstrates that video conferencing signaling and media compositing
+can be consolidated into a share-nothing Erlang/GStreamer node. By replacing microservice networks
+and headless browsers with local C99 OS port interfaces and Ingress Room Sticky Sessions, the system
+avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective
+SRE model for secure networks.
 \begin{thebibliography}{99}
 
 \bibitem{rfc3264}
@@ -585,7 +720,8 @@ Marier, F.
 \bibitem{toradexgst}
 Toradex Developer Center.
 \newblock Video Processing with GStreamer on Linux.
-\newblock Available online: \url{https://developer.toradex.com/software/linux-resources/multimedia/video-processing-gstreamer/}, 2026.
+\newblock Available online:
+  \url{https://developer.toradex.com/software/linux-resources/multimedia/video-processing-gstreamer/}, 2026.
 
 \bibitem{erpsre}
 Synrc Research.

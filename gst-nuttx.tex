@@ -164,6 +164,63 @@ void          rt_buffer_ref(rt_buffer_t* buf);
 void          rt_buffer_unref(rt_buffer_t* buf);
 \end{lstlisting}
 
+\newpage
+\section{Potential Market Applications for NuStream on NuttX}
+
+\begin{enumerate}
+\item \textbf{Automotive \& ADAS (Advanced Driver Assistance Systems)}
+    \begin{itemize}
+        \item Real-time camera processing, object detection preprocessing, surround-view stitching, and low-latency video encoding.
+        \item Driver monitoring systems (DMS) with infrared cameras and audio alerts.
+        \item \textit{Why it fits:} Strict safety standards (ISO 26262), deterministic timing for vision pipelines, and integration with NuttX’s real-time scheduler.
+    \end{itemize}
+
+\item \textbf{Industrial Automation \& Machine Vision}
+    \begin{itemize}
+        \item High-speed inspection systems on production lines (defect detection via cameras).
+        \item Robotic vision with real-time video feedback.
+        \item Predictive maintenance using multi-sensor (visual + audio) fusion.
+        \item \textit{Why it fits:} Harsh environments, need for predictable latency, and long-term reliability without Linux overhead.
+    \end{itemize}
+
+\item \textbf{Medical Devices \& Healthcare}
+    \begin{itemize}
+        \item Ultrasound, endoscopy, or surgical robotics video pipelines.
+        \item Patient monitoring with real-time audio/video streaming (telemedicine).
+        \item Wearable or portable diagnostic devices requiring low power and guaranteed timing.
+        \item \textit{Why it fits:} Regulatory requirements (IEC 62304) favor auditable, deterministic code.
+    \end{itemize}
+
+\item \textbf{Drones / UAVs \& Aerospace}
+    \begin{itemize}
+        \item Onboard video encoding and low-latency streaming for FPV or surveillance.
+        \item Payload processing (multispectral cameras, thermal imaging).
+        \item Real-time sensor fusion for autonomous navigation.
+        \item \textit{Why it fits:} Weight/power constraints + hard real-time needs for flight safety.
+    \end{itemize}
+
+\item \textbf{Mission-Critical Communications}
+    \begin{itemize}
+        \item Secure real-time video/audio over tactical radios or satellite links.
+        \item Body-worn or vehicle-mounted cameras for law enforcement/defense.
+        \item \textit{Why it fits:} Zero-copy + deterministic behavior reduces jitter and improves reliability under bandwidth constraints.
+    \end{itemize}
+
+\item \textbf{IoT Edge Devices \& Smart Infrastructure}
+    \begin{itemize}
+        \item Smart city cameras with onboard analytics.
+        \item Industrial IoT gateways handling multiple video/audio streams.
+        \item Environmental monitoring stations with multimedia logging.
+    \end{itemize}
+
+\item \textbf{Consumer / Prosumer Embedded Products}
+    \begin{itemize}
+        \item High-end security cameras or action cameras running a lightweight RTOS.
+        \item Audio processing devices (e.g., conference systems with echo cancellation).
+        \item Robotics hobbyist/pro projects needing better real-time media than Linux.
+    \end{itemize}
+\end{enumerate}
+
 \section{Conclusion}
 
 \textbf{NuStream} delivers a deterministic, lightweight, and auditable media pipeline framework specifically engineered

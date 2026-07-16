@@ -566,7 +566,7 @@ int main(int argc, char *argv[]) {
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
             "h264_tee. ! queue ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
@@ -581,7 +581,7 @@ int main(int argc, char *argv[]) {
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! tee name=raw_vtee "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! tee name=raw_vtee "
             "raw_vtee. ! queue ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
             "raw_atee. ! queue ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
@@ -595,7 +595,7 @@ int main(int argc, char *argv[]) {
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=150 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
             "h264_tee. ! queue ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "

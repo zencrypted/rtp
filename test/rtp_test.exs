@@ -7,7 +7,7 @@ defmodule RtpTest do
     on_exit(fn ->
       # Clean up files created during the test
       for i <- 1..4 do
-        File.rm("room_room_#{i}.mp4")
+        File.rm_rf("priv/static/rooms/room_#{i}")
       end
     end)
     :ok
@@ -24,9 +24,9 @@ defmodule RtpTest do
     # Wait briefly for ports to flush and close files
     Process.sleep(2000)
 
-    # Verify that the GStreamer mixed MP4 files are generated
+    # Verify that the GStreamer mixed HLS files are generated
     for i <- 1..4 do
-      filename = "room_room_#{i}.mp4"
+      filename = "priv/static/rooms/room_#{i}/index.m3u8"
       assert File.exists?(filename), "Recording file #{filename} was not created"
       
       stat = File.stat!(filename)

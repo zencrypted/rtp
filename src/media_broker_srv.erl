@@ -237,7 +237,7 @@ handle_info({poll_manifest, RoomId, StartedAt, Attempts}, State) ->
             {noreply, State};
         false ->
             if
-                Attempts < 100 ->
+                Attempts < 1000 ->
                     erlang:send_after(100, self(), {poll_manifest, RoomId, StartedAt, Attempts + 1}),
                     {noreply, State};
                 true ->

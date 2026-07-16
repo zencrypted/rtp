@@ -4,7 +4,7 @@ defmodule Rtp.MixProject do
   def project do
     [
       app: :rtp,
-      version: "0.1.0",
+      version: "0.7.16",
       aliases: aliases(),
       deps: deps()
     ]
@@ -25,7 +25,7 @@ defmodule Rtp.MixProject do
       {:nitro, "11.4.16"},
       {:kvs, "10.8.3"},
       {:jsone, "1.7.0"},
-      {:syn, git: "https://github.com/ostinelli/syn.git", tag: "3.4.2"},
+      {:syn, "3.4.2"},
       {:ex_doc, ">= 0.0.0", only: [:dev, :test]}
     ]
   end

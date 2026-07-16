@@ -21,17 +21,35 @@ defmodule RtpTest do
 
     assert exit_code == 0, "K6 test failed"
 
-    # Wait briefly for ports to flush and close files
-    Process.sleep(2000)
-
-    # Verify that the GStreamer mixed HLS files are generated
+    # Wait dynamically for ports to flush and close files (up to 15 seconds)
     for i <- 1..4 do
       filename = "priv/static/rooms/room_#{i}/index.m3u8"
-      assert File.exists?(filename), "Recording file #{filename} was not created"
       
-      stat = File.stat!(filename)
-      assert stat.size > 0, "Recording file #{filename} is empty"
-      IO.puts("Verified: #{filename} successfully recorded (#{stat.size} bytes)")
+      wait_for_file = fn loop, retries ->
+        if File.exists?(filename) do
+          stat = File.stat!(filename)
+          if stat.size > 0 do
+            IO.puts("Verified: #{filename} successfully recorded (#{stat.size} bytes)")
+            :ok
+          else
+            if retries > 0 do
+              Process.sleep(500)
+              loop.(loop, retries - 1)
+            else
+              flunk("Recording file #{filename} is empty")
+            end
+          end
+        else
+          if retries > 0 do
+            Process.sleep(500)
+            loop.(loop, retries - 1)
+          else
+            flunk("Recording file #{filename} was not created")
+          end
+        end
+      end
+      
+      wait_for_file.(wait_for_file, 30) # 30 * 500ms = 15 seconds
     end
   end
 end

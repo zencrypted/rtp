@@ -8,31 +8,43 @@ into a single cohesive Erlang/OTP application.
 ## 1. Directory Blueprint
 
 ```
-rtp/
-├── rebar.config             # Monolith dependencies (Bandit, N2O, Nitro, KVS, Syn, Eturnal)
-├── build.config             # satisfying config consultation hooks during compile
 ├── c_src/
-│   └── gst.c                # GStreamer WebRTC compositor C99 implementation
+│   └── gst.c                    # GStreamer WebRTC compositor C99 implementation
 ├── config/
-│   ├── sys.config           # Database directory, Eturnal TCP/UDP listeners, and N2O parameters
-│   └── vm.args              # Cluster node cookie and naming args
+│   ├── config.exs               # Elixir Erlang/OTP Application Environment
+│   ├── sys.config               # Database directory, Eturnal TCP/UDP listeners, and N2O parameters
+│   └── vm.args                  # Cluster node cookie and naming args
+├── priv/
+│   ├── static/                  # Front-end dashboard and client scripts
+│   │   ├── app/                 #
+│   │   │   ├── index.html       # INDEX.HTML Page
+│   │   │   └── login.html       # LOGIN.HTML Page
+│   │   └── rtp.css              # RTP.CSS Styles
+│   └── gst                      # compiled native C99 binary spawned by Erlang port
+├── lib/
+│   └── rtp
+│       ├── live_stream.ex       # HTTP Live Streaming (HLS) Server
+│       ├── n2o_socket.ex        # N2O Bandit WebSocket Proxy
+│       ├── static.ex            # Static Server
+│       └── ws.ex                # WebSocker Server
 ├── src/
-│   ├── rtp_app.erl          # boots KVS database, registers Syn scopes, and binds Cowboy ports
-│   ├── rtp_sup.erl          # superv isor starting mnesia_srv and media_broker_srv workers
-│   ├── routes.erl           # N2O page routing mappings
-│   ├── login.erl            # N2O Nitro user session handler
-│   ├── index.erl            # N2O Nitro room chat history feed
-│   ├── room_coordinator.erl # stateful room GenServer coordinator joining/leaving participants
-│   ├── syn_srv.erl          # distributed process registry wrappers
-│   ├── mnesia_srv.erl       # local database schema setup (disc_copies chat and room tables)
-│   ├── media_broker_srv.erl # supervised GStreamer compositor port manager (mp4 to S3 storage)
-│   └── auth_translation.erl # mTLS client certificate validation and LiveKit JWT token generator
-└── priv/
-    ├── static/              # Front-end dashboard and client scripts
-    │   ├── index.html       # dark-mode dashboard with layout controls and telemetry charts
-    │   ├── client.js        # main N2O signaler client
-    │   └── telemetry.js     # dedicated prioritized stats reporter querying PeerConnection stats
-    └── gst                  # compiled native C99 binary spawned by Erlang port
+│   ├── index.erl                # N2O Nitro room chat history feed
+│   ├── login.erl                # N2O Nitro user session handler
+│   ├── media_broker_srv.erl     # supervised GStreamer compositor port manager (mp4 to S3 storage)
+│   ├── mnesia_srv.erl           # local database schema setup (disc_copies chat and room tables)
+│   ├── n2o_signaling.erl        # WebRTC SDP/ICE
+│   ├── room_coordinator.erl     # Main Gen Server
+│   ├── routes.erl               # Erlang/OTP Default Routes
+│   ├── rtp_app.erl              # Erlang/OTP Application
+│   ├── rtp_sup.erl              # Erlang/OTP Supervisor starting mnesia_srv and media_broker_srv workers
+│   ├── rtp_syn.erl              # RTP Pub/Sub (Redis replacement)
+│   ├── rtp.app.src              # Deps: [kernel, stdlib, inets, ssl, bandit, websock_adapter, n2o, nitro, kvs, syn, mnesia]
+│   └── session_token.erl
+├── mix.exs                      # Elixir Packages (Dependencies)
+├── gst-nuttx.pdf                # GStreamer MCU port to NuttX
+├── rtp.pdf                      # GStreamer MCU Article in LaTeX
+├── GST.md                       # GStreamer MCU
+└── README.md                    # This file
 ```
 
 ## 2. Unified Architecture Topology

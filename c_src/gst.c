@@ -562,7 +562,7 @@ int main(int argc, char *argv[]) {
 
     gchar *pipeline_str = NULL;
     if (g_strcmp0(format, "fmp4") == 0 || g_strcmp0(format, "mp4") == 0) {
-        g_printerr("Using fMP4 fragmented single file recording format.\n");
+        g_printerr("Using MP4 Fragmented single file recording format.\n");
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
@@ -637,7 +637,7 @@ int main(int argc, char *argv[]) {
 
     // Send a message to Erlang that the recording pipeline is playing
     g_printerr("{\"type\": \"recording_started\"}\n");
-    
+
     // Setup stdin signaling channel reader via GLib IO channels
     GIOChannel *stdin_chan = g_io_channel_unix_new(0); // 0 = stdin
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);

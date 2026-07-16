@@ -1,21 +1,9 @@
 {application, rtp, [
-    {description, "ERP/1 RTP H.264 H.265  MP4/MP2 "},
+    {description, "ERP/1 RTP H.264 H.265 MP4 MPEG-2"},
     {vsn, "0.7.16"},
     {registered, []},
     {mod, {rtp_app, []}},
-    {applications, [
-        kernel,
-        stdlib,
-        inets,
-        ssl,
-        bandit,
-        websock_adapter,
-        n2o,
-        nitro,
-        kvs,
-        syn,
-        mnesia
-    ]},
+    {applications, [ kernel, stdlib, inets, ssl, bandit, websock_adapter, n2o, nitro, kvs, syn, mnesia ]},
     {env,[]},
     {modules, []},
     {licenses, ["Apache-2.0"]},

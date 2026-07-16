@@ -169,7 +169,7 @@ handle_info({Port, {data, {eol, LineBin}}}, State) ->
                         <<"started_at">> => RealStart,
                         <<"hls_format">> => HlsFormat
                     }),
-                    Msg = {'$msg', kvs:seq([], []), [], [], self(), RoomInfoMsg},
+                    Msg = {'$msg', kvs:seq([], []), [], [], <<"System">>, RoomInfoMsg},
                     n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
                     
                     NewStartedAt = maps:put(RoomId, RealStart, State#state.room_started_at),

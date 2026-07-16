@@ -558,6 +558,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < 16; i++) state.grid_slots[i] = FALSE;
     state.loop = g_main_loop_new(NULL, FALSE);
 
+    gint64 ts = g_get_real_time() / G_USEC_PER_SEC;
+
     gchar *pipeline_str = NULL;
     if (g_strcmp0(format, "fmp4") == 0 || g_strcmp0(format, "mp4") == 0) {
         g_printerr("Using fMP4 fragmented single file recording format.\n");
@@ -565,11 +567,13 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
-            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
-            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
+            "h264_tee. ! queue ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
+            "raw_atee. ! queue ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "mp4mux name=mux fragment-duration=1000 streamable=true ! filesink location=%s/recording.mp4 "
-            "vtee. ! queue leaky=2 ! rtph264depay ! h264parse ! mux.video_0 "
-            "atee. ! queue leaky=2 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
+            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! mux.video_0 "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
             out_dir
         );
     } else if (g_strcmp0(format, "hevc") == 0 || g_strcmp0(format, "h265") == 0) {
@@ -579,11 +583,12 @@ int main(int argc, char *argv[]) {
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! tee name=raw_vtee "
             "raw_vtee. ! queue ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
-            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
-            "raw_vtee. ! queue leaky=2 ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h265parse ! hlssink2.video "
-            "atee. ! queue leaky=2 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
-            "hlssink2 name=hlssink2 location=%s/segment_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
-            out_dir, out_dir
+            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
+            "raw_atee. ! queue ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_vtee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h265parse ! hlssink2.video "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
+            "hlssink2 name=hlssink2 location=%s/segment_%ld_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
+            out_dir, ts, out_dir
         );
     } else {
         g_printerr("Using HLS segment generation format (H.264).\n");
@@ -591,12 +596,14 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
-            "speed-preset=ultrafast key-int-max=60 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
-            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
-            "vtee. ! queue leaky=2 ! rtph264depay ! h264parse ! hlssink2.video "
-            "atee. ! queue leaky=2 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
-            "hlssink2 name=hlssink2 location=%s/segment_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
-            out_dir, out_dir
+            "speed-preset=ultrafast key-int-max=150 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
+            "h264_tee. ! queue ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
+            "raw_atee. ! queue ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! hlssink2.video "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
+            "hlssink2 name=hlssink2 location=%s/segment_%ld_%%05d.ts playlist-location=%s/index.m3u8 target-duration=5 max-files=0 playlist-length=10",
+            out_dir, ts, out_dir
         );
     }
     state.pipeline = gst_parse_launch(pipeline_str, NULL);

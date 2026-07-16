@@ -692,6 +692,13 @@
                 const mp4Url = `/rooms/${encodeURIComponent(roomName)}/recording.mp4`;
                 hlsVideo.src = mp4Url;
                 
+                hlsVideo.onloadedmetadata = function() {
+                    if (seekTime > 0) {
+                        hlsVideo.currentTime = seekTime;
+                    }
+                    hlsVideo.play().catch(e => console.warn('fMP4 Autoplay prevented:', e));
+                };
+
                 // Add error handler for early fetches
                 hlsVideo.onerror = function() {
                     if (retryCount < 10) {
@@ -720,13 +727,11 @@
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
                                 console.warn('HLS Network error, retrying in 1s...', data);
-                                if (retryCount < 10) {
-                                    setTimeout(() => {
-                                        window.hlsPlayer.destroy();
-                                        window.hlsPlayer = null;
-                                        initHlsPlayer(retryCount + 1);
-                                    }, 1000);
-                                }
+                                setTimeout(() => {
+                                    if (window.hlsPlayer) {
+                                        window.hlsPlayer.startLoad();
+                                    }
+                                }, 1000);
                                 break;
                             default:
                                 window.hlsPlayer.destroy();

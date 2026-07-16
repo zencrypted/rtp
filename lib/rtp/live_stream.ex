@@ -33,11 +33,15 @@ defmodule Rtp.LiveStream do
             end
           String.ends_with?(file_name, ".ts") ->
             if File.exists?(file_path) do
-              conn
-              |> put_resp_header("content-type", "video/mp2t")
-              |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
-              |> send_resp(200, File.read!(file_path))
-              |> halt()
+              {time_us, conn} = :timer.tc(fn ->
+                conn
+                |> put_resp_header("content-type", "video/mp2t")
+                |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
+                |> send_file(200, file_path)
+              end)
+              require Logger
+              Logger.info("Served #{file_name} in #{time_us / 1000} ms")
+              conn |> halt()
             else
               conn |> send_resp(404, "Not Found") |> halt()
             end

@@ -1,99 +1,543 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Room Dashboard - GStreamer MCU</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/rtp.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VKZ Ukrainian Court - Video Conference</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root {
+            --bg-color: #0f121d;
+            --panel-bg: rgba(22, 28, 45, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary-accent: #3b82f6;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.2rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(15, 18, 29, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        .logo-section h1 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
+        }
+
+        .logo-section p, #heading {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 300;
+            margin: 0;
+        }
+
+        #heading h2 {
+            font-size: 0.8rem;
+            color: #60a5fa;
+            font-weight: 600;
+            display: inline;
+        }
+
+        .court-badge {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            flex: 1;
+            height: calc(100vh - 73px);
+            overflow: hidden;
+        }
+
+        .video-container-wrapper {
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow: hidden;
+            position: relative;
+            flex: 1;
+        }
+
+        .video-grid {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            gap: 1.2rem;
+            min-height: 0;
+        }
+
+        .video-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .video-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.2);
+        }
+
+        #remoteVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+
+        .participant-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(15, 18, 29, 0.75);
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .participant-status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-success);
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .sidebar {
+            background: rgba(15, 18, 29, 0.5);
+            border-left: 1px solid var(--border-color);
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 1.1rem;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn.active {
+            color: var(--primary-accent);
+            border-bottom: 2px solid var(--primary-accent);
+            background: rgba(59, 130, 246, 0.03);
+        }
+
+        .chat-section {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .messages-list {
+            flex: 1;
+            padding: 1.2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        /* Message styling from original index.htm to support Nitro rendering */
+        .message-bubble, .message {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            padding: 0.8rem 1rem;
+            border-radius: 12px;
+            max-width: 85%;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            align-self: flex-start;
+        }
+
+        .author {
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: var(--primary-accent);
+            margin-bottom: 0.3rem;
+            display: block;
+        }
+
+        .chat-input-wrapper {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+            background: rgba(15, 18, 29, 0.8);
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(22, 28, 45, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.7rem 1rem;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .chat-input:focus {
+            border-color: var(--primary-accent);
+        }
+
+        /* Styled Nitro send button */
+        #send, #send input, #send button, .send-btn {
+            background: var(--primary-accent);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 0.7rem 1.2rem;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            display: inline-block;
+        }
+
+        #send:hover, #send input:hover, #send button:hover, .send-btn:hover {
+            background-color: #2563eb;
+        }
+
+        .telemetry-dashboard {
+            padding: 1.2rem;
+            background: rgba(22, 28, 45, 0.5);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .telemetry-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 0.8rem;
+            font-weight: 800;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.8rem;
+        }
+
+        .telemetry-metric {
+            background: rgba(15, 18, 29, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0.6rem 0.8rem;
+        }
+
+        .metric-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: 800;
+            margin-top: 0.2rem;
+            font-family: monospace;
+        }
+
+        .status-ok { color: var(--accent-success); }
+        .status-warn { color: var(--accent-warning); }
+
+        .control-bar {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 1rem;
+            background: rgba(15, 18, 29, 0.95);
+            border: 1px solid var(--border-color);
+            padding: 0.8rem 1.5rem;
+            border-radius: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(15px);
+            z-index: 100;
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            font-size: 1.1rem;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: scale(1.05);
+        }
+
+        .control-btn.active {
+            background: var(--primary-accent);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        /* Default decline state for disconnecting */
+        .control-btn.decline {
+            background: #ef4444;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .control-btn.decline:hover {
+            background-color: #dc2626;
+        }
+
+        /* Style for active green join */
+        .control-btn.join-btn {
+            background: var(--accent-success);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .control-btn.join-btn:hover {
+            background-color: #059669;
+        }
+
+        /* Styled Nitro Logout badge button */
+        #logout, #logout input, #logout button, .logout-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-block;
+        }
+        #logout:hover, #logout input:hover, #logout button:hover, .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.2);
+            transform: translateY(-1px);
+        }
+
+        /* Styled Nitro Terminate button */
+        #terminate input, #terminate button, .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: 10px;
+            padding: 0.7rem 1.2rem;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.2s ease;
+        }
+        #terminate input:hover, #terminate button:hover, .btn-danger:hover {
+            background-color: rgba(239, 68, 68, 0.25);
+        }
+
+        /* Active member item row styling */
+        .users-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+        .user-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0.6rem 0.8rem;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 0.85rem;
+        }
+        .user-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-success);
+        }
+    </style>
 </head>
 <body>
-    <header class="app-header">
-        <div class="brand-title">
-            <div class="brand-dot"></div>
-            <span>GStreamer MCU Room</span>
+
+    <header>
+        <div class="logo-section">
+            <h1>УАК ВЗ</h1>
+            <span id="heading"></span>
         </div>
-        <span id="heading" style="font-weight: 600;"></span>
-        <nav class="app-menu">
+        <div style="display: flex; align-items: center; gap: 1.5rem;">
+            <div class="court-badge" id="currentUserSpan">Connecting...</div>
             <span id="logout"></span>
-        </nav>
+        </div>
     </header>
 
-    <main class="app-container" style="flex: 1; display: flex; flex-direction: column;">
-        <div class="conference-layout">
-            <!-- MCU Mixed Feed — full area, single video from GStreamer compositor -->
-            <div class="video-section">
-                <div style="position: relative; flex: 1; background: #000; border-radius: 12px; overflow: hidden;">
-                    <video id="remoteVideo" autoplay playsinline
-                           style="width:100%; height:100%; object-fit:cover; display:block;"></video>
-
-                    <!-- Status badge -->
-                    <div id="streamLabel"
-                         style="position:absolute; top:12px; left:12px;
-                                background:rgba(0,0,0,0.6); color:#fff;
-                                font-size:0.75rem; padding:4px 12px;
-                                border-radius:20px; letter-spacing:0.03em;">
-                        ⬛ Waiting for MCU feed…
+    <div class="main-layout">
+        <div class="video-container-wrapper">
+            <div class="video-grid" id="videoGrid">
+                <!-- MCU Mixed Feed Area -->
+                <div class="video-card">
+                    <!-- MCU Mixed Feed Area (WebRTC) -->
+                    <video id="remoteVideo" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
+                    
+                    <!-- Stream Feed (HLS/MP4) -->
+                    <video id="hlsVideo" autoplay muted controls playsinline style="width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
+                    
+                    <div class="participant-overlay">
+                        <span class="participant-status-dot"></span>
+                        <span id="streamLabel">⬛ Очікування трансляції...</span>
                     </div>
 
-                    <!-- Local PiP (your own camera, small, bottom-right) -->
+                    <!-- Local PiP camera feed -->
                     <video id="localVideo" autoplay playsinline muted
                            style="position:absolute; bottom:16px; right:16px;
                                   width:160px; aspect-ratio:16/9;
                                   object-fit:cover; border-radius:8px;
-                                  border:2px solid var(--accent-color);
-                                  transform:scaleX(-1); display:none;"></video>
-                </div>
-
-                <!-- Controls -->
-                <div class="video-controls">
-                    <button class="btn-control" id="btnMuteVideo" title="Mute Video" disabled>
-                        <svg viewBox="0 0 24 24"><path d="M16 16v-8l5-4v16l-5-4zm-2 2H2V6h12v12z"/></svg>
-                    </button>
-                    <button class="btn-primary" id="btnJoin"
-                            style="width:auto; padding:0 2rem; margin:0;
-                                   display:inline-flex; align-items:center;
-                                   gap:0.5rem; border-radius:9999px;">
-                        Join Conference
-                    </button>
-                    <button class="btn-control" id="btnMuteAudio" title="Mute Mic" disabled>
-                        <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.42 2.72 6.2 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
-                    </button>
+                                  border:2px solid var(--primary-accent);
+                                  transform:scaleX(-1); display:none; z-index:10;"></video>
                 </div>
             </div>
 
+            <div class="control-bar">
+                <button class="control-btn" id="btnMuteAudio" title="Вимкнути мікрофон" disabled>🎙️</button>
+                <button class="control-btn" id="btnMuteVideo" title="Вимкнути камеру" disabled>📹</button>
+                <button class="control-btn" id="btnShare" title="Поділитися екраном" style="display:none;">🖥️</button>
+                <button class="control-btn join-btn" id="btnJoin" title="Приєднатися">📞</button>
+            </div>
+        </div>
 
-
-            <!-- Chat & Users sidebar -->
-            <div class="panel-sidebar">
-                <div class="sidebar-section">
-                    <div class="sidebar-title">Active Members</div>
-                    <div class="users-list" id="membersList">
-                        <div class="user-item">
-                            <div class="user-status"></div>
-                            <span id="currentUserSpan">Connecting...</span>
-                        </div>
+        <div class="sidebar">
+            <div class="telemetry-dashboard">
+                <div class="telemetry-title">
+                    <span>Мережева Телеметрія</span>
+                    <span style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">QoS Priority EF</span>
+                </div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-metric">
+                        <div class="metric-label">RTT затримка</div>
+                        <div class="metric-value status-ok" id="rttVal">0 ms</div>
+                    </div>
+                    <div class="telemetry-metric">
+                        <div class="metric-label">Втрати пакетів</div>
+                        <div class="metric-value status-ok" id="lossVal">0.00%</div>
                     </div>
                 </div>
+            </div>
 
-                <div class="sidebar-section chat-section">
-                    <div class="sidebar-title">Room Chat</div>
-                    <div class="chat-history" id="history">
-                        <!-- Messages inserted dynamically here -->
-                    </div>
-                    <div class="chat-input-wrapper">
-                        <input id="message" type="text" placeholder="Type message..." />
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" id="tabChat">Чат кімнати</button>
+                <button class="tab-btn" id="tabMembers">Учасники</button>
+            </div>
+
+            <!-- Chat Tab View -->
+            <div class="chat-section" id="chatSection">
+                <div class="messages-list" id="history">
+                    <!-- Messages inserted dynamically here -->
+                </div>
+                <div class="chat-input-wrapper">
+                    <div class="chat-input-row">
+                        <input type="text" class="chat-input" id="message" placeholder="Введіть повідомлення...">
                         <span id="send"></span>
                     </div>
                 </div>
+            </div>
 
-                <div class="sidebar-section" style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
-                    <div id="recording_info" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem; word-break: break-all;"></div>
-                    <span id="terminate"></span>
+            <!-- Active Members Tab View -->
+            <div class="chat-section" id="membersSection" style="display: none; padding: 1.2rem; overflow-y: auto;">
+                <div class="users-list" id="membersList">
+                    <div class="user-item">
+                        <div class="user-status"></div>
+                        <span id="currentUserSpanSidebar">Connecting...</span>
+                    </div>
                 </div>
             </div>
+
+            <!-- Recording Status & Room Controls -->
+            <div style="padding: 1.2rem; border-top: 1px solid var(--border-color); background: rgba(15, 18, 29, 0.45);">
+                <div id="recording_info" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.8rem; word-break: break-all;"></div>
+                <span id="terminate"></span>
+            </div>
         </div>
-    </main>
+    </div>
 
     <!-- N2O / NITRO Scripts -->
     <script src="https://ws.n2o.dev/priv/utf8.js"></script>
@@ -105,7 +549,7 @@
     <script src="https://nitro.n2o.dev/priv/js/nitro.js"></script>
     <script>protos = [$bert]; N2O_start();</script>
 
-    <!-- WebRTC composite / signaling script -->
+    <!-- WebRTC signaling and UI controller script -->
     <script>
         // Room/user survive F5: URL params take priority, localStorage as fallback.
         const urlParams = new URLSearchParams(window.location.search);
@@ -115,29 +559,58 @@
         const userName = urlParams.get('user')
                       || localStorage.getItem('rtp_user')
                       || 'guest';
+        const sessionToken = urlParams.get('token')
+                      || localStorage.getItem('rtp_token')
+                      || '';
 
         // Persist so F5 without URL params still knows who/where we are
         localStorage.setItem('rtp_room', roomName);
         localStorage.setItem('rtp_user', userName);
+        if (sessionToken) {
+            localStorage.setItem('rtp_token', sessionToken);
+        }
 
         // Keep URL in sync (makes sharing/bookmarking work)
-        if (!urlParams.get('room') || !urlParams.get('user')) {
+        if (!urlParams.get('room') || !urlParams.get('user') || (sessionToken && !urlParams.get('token'))) {
             const next = new URL(window.location.href);
             next.searchParams.set('room', roomName);
             next.searchParams.set('user', userName);
+            if (sessionToken) next.searchParams.set('token', sessionToken);
             history.replaceState(null, '', next.toString());
         }
 
         document.getElementById('currentUserSpan').textContent = userName + ' (You)';
+        document.getElementById('currentUserSpanSidebar').textContent = userName + ' (You)';
 
+        // Sidebar tab selector buttons
+        const tabChat = document.getElementById('tabChat');
+        const tabMembers = document.getElementById('tabMembers');
+        const chatSection = document.getElementById('chatSection');
+        const membersSection = document.getElementById('membersSection');
 
+        tabChat.onclick = () => {
+            tabChat.classList.add('active');
+            tabMembers.classList.remove('active');
+            chatSection.style.display = 'flex';
+            membersSection.style.display = 'none';
+        };
+
+        tabMembers.onclick = () => {
+            tabMembers.classList.add('active');
+            tabChat.classList.remove('active');
+            chatSection.style.display = 'none';
+            membersSection.style.display = 'flex';
+        };
+
+        // WebRTC Signaling elements
         const remoteVideo = document.getElementById('remoteVideo');
         const localVideo  = document.getElementById('localVideo');
+        const hlsVideo    = document.getElementById('hlsVideo');
         const btnJoin      = document.getElementById('btnJoin');
         const btnMuteVideo = document.getElementById('btnMuteVideo');
         const btnMuteAudio = document.getElementById('btnMuteAudio');
 
-        let ws          = null;
+        let signalingWs = null;
         let pc          = null;
         let localStream = null;
         let peerId      = null;
@@ -146,9 +619,9 @@
 
         function connectSignaling() {
             // Connect to signaling websocket using fallback auth query params
-            ws = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName));
+            signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName) + '&token=' + encodeURIComponent(sessionToken));
             
-            ws.onopen = () => {
+            signalingWs.onopen = () => {
                 if (autoJoin) {
                     console.log('Signaling connected — auto-joining conference');
                     startConference();
@@ -157,24 +630,39 @@
                 }
             };
 
-            ws.onclose = () => {
+            signalingWs.onclose = () => {
                 console.log('WebRTC Signaling disconnected');
                 resetWebRTC();
             };
 
-            ws.onmessage = async (e) => {
+            signalingWs.onmessage = async (e) => {
                 const msg = JSON.parse(e.data);
                 console.log('WebRTC signaling msg:', msg);
 
                 if (msg.type === 'init') {
                     peerId = msg.peer_id;
                     console.log('My Peer ID:', peerId);
+                } else if (msg.type === 'room_info') {
+                    const startedAt = msg.started_at;
+                    const now = Date.now();
+                    const deltaMs = now - startedAt;
+                    console.log(`Room started at: ${startedAt}. Delta from now: ${deltaMs}ms`);
+                    window.roomStartedAt = startedAt;
+                    window.roomDeltaMs = deltaMs;
+                    window.hlsFormat = msg.hls_format || 'fmp4';
+                    
+                    document.getElementById('streamLabel').style.display = 'none';
+                    
+                    // Always start the player when room_info is received
+                    if (!window.hlsPlayer) {
+                        setTimeout(initHlsPlayer, 100);
+                    }
                 } else if (msg.sdp) {
                     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     if (msg.sdp.type === 'offer') {
                         const answer = await pc.createAnswer();
                         await pc.setLocalDescription(answer);
-                        ws.send(JSON.stringify({ sdp: pc.localDescription }));
+                        signalingWs.send(JSON.stringify({ sdp: pc.localDescription }));
                     }
                 } else if (msg.candidate) {
                     try {
@@ -186,29 +674,115 @@
             };
         }
 
+        btnJoin.addEventListener('click', () => {
+            autoJoin = true;
+            localStorage.setItem('rtp_joined', 'true');
+            if (!signalingWs) {
+                connectSignaling();
+            } else {
+                startConference();
+            }
+        });
+
+        function initHlsPlayer(retryCount = 0) {
+            const seekTime = Math.max(0, (window.roomDeltaMs || 0) / 1000 - 2);
+            console.log(`Initializing player, seeking to live edge: ${seekTime} seconds`);
+
+            if (window.hlsFormat === 'fmp4' || window.hlsFormat === 'mp4') {
+                const mp4Url = `/rooms/${encodeURIComponent(roomName)}/recording.mp4`;
+                hlsVideo.src = mp4Url;
+                
+                // Add error handler for early fetches
+                hlsVideo.onerror = function() {
+                    if (retryCount < 10) {
+                        console.log('Stream not ready, retrying in 1s...');
+                        setTimeout(() => initHlsPlayer(retryCount + 1), 1000);
+                    }
+                };
+                return;
+            }
+
+            const playlistUrl = `/rooms/${encodeURIComponent(roomName)}/index.m3u8`;
+            if (Hls.isSupported()) {
+                window.hlsPlayer = new Hls({
+                    liveSyncDurationCount: 3,
+                    liveMaxLatencyDurationCount: 10,
+                    backBufferLength: 90
+                });
+                window.hlsPlayer.loadSource(playlistUrl);
+                window.hlsPlayer.attachMedia(hlsVideo);
+                window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+                    // Hls.js handles the live edge natively for live playlists
+                    hlsVideo.play().catch(e => console.warn('HLS Autoplay prevented:', e));
+                });
+                window.hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.warn('HLS Network error, retrying in 1s...', data);
+                                if (retryCount < 10) {
+                                    setTimeout(() => {
+                                        window.hlsPlayer.destroy();
+                                        window.hlsPlayer = null;
+                                        initHlsPlayer(retryCount + 1);
+                                    }, 1000);
+                                }
+                                break;
+                            default:
+                                window.hlsPlayer.destroy();
+                                break;
+                        }
+                    }
+                });
+            } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                hlsVideo.src = playlistUrl;
+                hlsVideo.addEventListener('loadedmetadata', function() {
+                    // Safari handles live edge natively
+                    hlsVideo.play().catch(e => console.warn('Safari Autoplay prevented:', e));
+                });
+            }
+        }
+
         async function startConference() {
             try {
                 autoJoin = true;
                 localStorage.setItem('rtp_joined', 'true');  // remember: user is joined
                 btnJoin.disabled = true;
-                btnJoin.textContent = 'Connecting...';
+                btnJoin.textContent = '⌛';
 
-                localStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 640, height: 360, frameRate: 30 }, 
-                    audio: true 
-                });
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: 640, height: 360, frameRate: 30 }, 
+                        audio: true 
+                    });
+                } catch (e) {
+                    console.warn('Webcam acquisition failed, falling back to audio only:', e);
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: true 
+                    });
+                }
                 
-                localVideo.srcObject = localStream;
-                localVideo.style.display = 'block';
+                const hasVideo = localStream.getVideoTracks().length > 0;
+                if (hasVideo) {
+                    localVideo.srcObject = localStream;
+                    localVideo.style.display = 'block';
+                    btnMuteVideo.disabled = false;
+                    btnMuteVideo.classList.add('active');
+                } else {
+                    localVideo.style.display = 'none';
+                    btnMuteVideo.disabled = true;
+                    btnMuteVideo.classList.remove('active');
+                }
 
-                btnMuteVideo.disabled = false;
                 btnMuteAudio.disabled = false;
+                btnMuteAudio.classList.add('active');
 
                 pc = new RTCPeerConnection({
                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
                 });
 
                 pc.ontrack = (event) => {
+                    console.log('Received remote track', event.track);
                     let stream = event.streams[0];
                     if (!stream) {
                         if (!remoteVideo.srcObject) remoteVideo.srcObject = new MediaStream();
@@ -216,25 +790,38 @@
                     } else {
                         if (remoteVideo.srcObject !== stream) remoteVideo.srcObject = stream;
                     }
-                    document.getElementById('streamLabel').textContent = '🔴 Live — GStreamer MCU Mixed Feed';
+                    
+                    // Switch UI from HLS to WebRTC
+                    hlsVideo.style.display = 'none';
+                    if (window.hlsPlayer && typeof window.hlsPlayer.destroy === 'function') {
+                        window.hlsPlayer.destroy();
+                        window.hlsPlayer = null;
+                    } else {
+                        hlsVideo.src = '';
+                    }
+                    remoteVideo.style.display = 'block';
+                    remoteVideo.play().catch(e => console.error("WebRTC play error:", e));
+                    document.getElementById('streamLabel').textContent = '🔴 Ефір — GStreamer MCU Потік';
+                    document.getElementById('streamLabel').style.display = 'block';
                 };
 
                 pc.onicecandidate = (event) => {
-                    if (event.candidate) ws.send(JSON.stringify({ candidate: event.candidate }));
+                    if (event.candidate) signalingWs.send(JSON.stringify({ candidate: event.candidate }));
                 };
 
                 localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
-                ws.send(JSON.stringify({ type: 'ready' }));
+                signalingWs.send(JSON.stringify({ type: 'ready' }));
 
-                btnJoin.textContent = 'Disconnect';
-                btnJoin.style.background = 'var(--danger-color)';
+                btnJoin.textContent = '❌';
+                btnJoin.classList.remove('join-btn');
+                btnJoin.classList.add('decline');
                 btnJoin.onclick = leaveConference;
                 btnJoin.disabled = false;
 
             } catch (err) {
                 console.error('Join failed:', err);
-                alert('Webcam/Mic access denied or connection issue: ' + err.message);
+                alert('Microphone/Webcam access denied or connection issue: ' + err.message);
                 resetWebRTC();
             }
         }
@@ -242,9 +829,11 @@
         function leaveConference() {
             autoJoin = false;
             localStorage.removeItem('rtp_joined');  // F5 after Disconnect → stays disconnected
-            localStorage.removeItem('rtp_room');
-            localStorage.removeItem('rtp_user');
-            if (ws) ws.close();
+            if (signalingWs) {
+                signalingWs.onclose = null;  // prevent double-reset
+                signalingWs.close();
+                signalingWs = null;
+            }
             resetWebRTC();
             connectSignaling();
         }
@@ -255,24 +844,26 @@
             remoteVideo.srcObject = null;
             localVideo.srcObject = null;
             localVideo.style.display = 'none';
-            document.getElementById('streamLabel').textContent = '⬛ Waiting for MCU feed…';
+            document.getElementById('streamLabel').textContent = '⬛ Очікування трансляції MCU...';
 
             btnJoin.disabled = false;
-            btnJoin.textContent = 'Join Conference';
-            btnJoin.style.background = 'var(--accent-color)';
+            btnJoin.textContent = '📞';
+            btnJoin.classList.remove('decline');
+            btnJoin.classList.add('join-btn');
             btnJoin.onclick = startConference;
 
             btnMuteVideo.disabled = true;
-            btnMuteVideo.className = 'btn-control';
+            btnMuteVideo.classList.remove('active');
             btnMuteAudio.disabled = true;
-            btnMuteAudio.className = 'btn-control';
+            btnMuteAudio.classList.remove('active');
         }
 
         btnMuteVideo.onclick = () => {
             const videoTrack = localStream.getVideoTracks()[0];
             if (videoTrack) {
                 videoTrack.enabled = !videoTrack.enabled;
-                btnMuteVideo.classList.toggle('active', !videoTrack.enabled);
+                btnMuteVideo.classList.toggle('active', videoTrack.enabled);
+                localVideo.style.display = videoTrack.enabled ? 'block' : 'none';
             }
         };
 
@@ -280,12 +871,43 @@
             const audioTrack = localStream.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
-                btnMuteAudio.classList.toggle('active', !audioTrack.enabled);
+                btnMuteAudio.classList.toggle('active', audioTrack.enabled);
             }
         };
 
-        // btnJoin is now a manual override (auto-join fires via ws.onopen)
         btnJoin.onclick = startConference;
+
+        // WebRTC real-time telemetry stats
+        setInterval(async () => {
+            if (pc && pc.signalingState !== 'closed') {
+                try {
+                    const stats = await pc.getStats();
+                    stats.forEach(report => {
+                        if (report.type === 'remote-inbound-rtp') {
+                            if (report.roundTripTime !== undefined) {
+                                document.getElementById('rttVal').textContent = Math.round(report.roundTripTime * 1000) + ' ms';
+                            }
+                            if (report.packetsLost !== undefined && report.packetsReceived !== undefined) {
+                                const total = report.packetsLost + report.packetsReceived;
+                                const lossRate = total > 0 ? (report.packetsLost / total) * 100 : 0;
+                                document.getElementById('lossVal').textContent = lossRate.toFixed(2) + '%';
+                            }
+                        }
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            if (report.currentRoundTripTime !== undefined) {
+                                document.getElementById('rttVal').textContent = Math.round(report.currentRoundTripTime * 1000) + ' ms';
+                            }
+                        }
+                    });
+                } catch (e) {
+                    console.warn('Telemetry check failed:', e);
+                }
+            } else {
+                document.getElementById('rttVal').textContent = '0 ms';
+                document.getElementById('lossVal').textContent = '0.00%';
+            }
+        }, 2000);
+
         connectSignaling();
     </script>
 </body>

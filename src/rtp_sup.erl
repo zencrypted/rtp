@@ -20,14 +20,6 @@ init([]) ->
             shutdown => 2000,
             type => worker,
             modules => [mnesia_srv]
-        },
-        #{
-            id => media_broker_srv,
-            start => {media_broker_srv, start_link, []},
-            restart => permanent,
-            shutdown => 2000,
-            type => worker,
-            modules => [media_broker_srv]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

@@ -21,8 +21,6 @@ route_prefix(P) -> route(P).
 route(<<>>) -> login;
 route(<<"index", _/binary>>) -> index;
 route(<<"login", _/binary>>) -> login;
-route(<<"mcu", _/binary>>) -> mcu;
 route(<<"app/index", _/binary>>) -> index;
 route(<<"app/login", _/binary>>) -> login;
-route(<<"app/mcu", _/binary>>) -> mcu;
 route(_) -> login.

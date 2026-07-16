@@ -2,56 +2,103 @@
 -export([event/1, jse/1]).
 -include_lib("nitro/include/nitro.hrl").
 -include_lib("n2o/include/n2o.hrl").
--include_lib("kvs/include/cursors.hrl").
+-include("session_token.hrl").
 
 event(init) ->
-    %% Session survives F5 (Mnesia-backed cookie). Fall back to URL query params
-    %% if user arrives directly via URL without going through login.
-    RawRoom = n2o:session(room),
-    RawUser = n2o:user(),
-    {Room, User} = case {RawRoom, RawUser} of
-        {R, U} when R =/= [] andalso R =/= undefined andalso
-                    U =/= [] andalso U =/= undefined ->
-            {R, U};
-        _ ->
-            Req = (n2o:cx())#cx.req,
-            QS  = maps:get(qs, Req, <<>>),
-            Params = uri_string:dissect_query(QS),
-            R2 = proplists:get_value(<<"room">>, Params, <<"lobby">>),
-            U2 = proplists:get_value(<<"user">>, Params, <<"guest">>),
-            n2o:session(room, R2),
-            n2o:user(U2),
-            {R2, U2}
+    Req = (get(context))#cx.req,
+    QS  = case is_map(Req) of
+        true -> maps:get(qs, Req, <<>>);
+        false -> <<>>
     end,
-    Key  = {topic, Room},
-    n2o:reg(Key),
-    n2o:reg(n2o:sid()),
-    nitro:clear(history),
-    nitro:update(logout,    #button{id = logout, body = "Logout " ++ User, postback = logout}),
-    nitro:update(heading,   #h2{id = heading, body = Room}),
-    nitro:update(upload,    #upload{}),
-    nitro:update(send,      #button{id = send, body = <<"Chat">>,
-                                    postback = chat, source = [message]}),
-    nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>,
-                                    postback = terminate_room, class = <<"btn-danger">>}),
-    RecPath = media_broker_srv:recording_path(Room),
-    nitro:update(recording_info, #span{id = recording_info,
-                                       body = [<<"📹 ">>, RecPath]}),
-    [ event(#client{data = E}) || E <- lists:reverse(kvs:feed(Key)) ],
-    n2o:send(Key, #client{data = {member_joined, User}});
+    Params = uri_string:dissect_query(QS),
+    Token = case proplists:get_value(<<"token">>, Params) of
+        undefined ->
+            case n2o:session(token) of
+                undefined -> <<>>;
+                T0 -> T0
+            end;
+        T -> T
+    end,
+    case session_token:validate(Token) of
+        {ok, #session_token{user = UserBin, room = RoomBin}} ->
+            Room = binary_to_list(RoomBin),
+            User = binary_to_list(UserBin),
+            n2o:session(room, Room),
+            n2o:user(User),
+            n2o:session(token, Token),
+            Key  = {topic, Room},
+            n2o:reg(Key),
+            n2o:reg(n2o:sid()),
+            nitro:clear(history),
+            nitro:update(logout,    #button{id = logout, body = "Logout " ++ User, postback = logout}),
+            nitro:update(heading,   #h2{id = heading, body = Room}),
+            nitro:update(upload,    #upload{}),
+            nitro:update(send,      #button{id = send, body = <<"Chat">>,
+                                            postback = chat, source = [message]}),
+            nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>,
+                                            postback = terminate_room, class = <<"btn-danger">>}),
+            RecPath = media_broker_srv:recording_path(RoomBin),
+            nitro:update(recording_info, #span{id = recording_info,
+                                               body = [<<"📹 ">>, RecPath]}),
+            
+            %% Ensure room coordinator is started (which creates the Mnesia table)
+            {ok, RoomPid} = room_coordinator:ensure_started(Room),
+
+            %% Join room coordinator list of participants
+            {ok, _} = room_coordinator:join(RoomPid, #{id => list_to_binary(User), pid => self()}),
+
+            %% Fetch room-specific history
+            {ok, History} = mnesia_srv:get_messages_from_room(Room),
+            [ nitro:insert_top(history, nitro:render(#message{body = [#author{body = MapUser}, MapMsg]}))
+              || #{sender := MapUser, text := MapMsg} <- History ],
+
+            %% Draw active members list
+            Participants = room_coordinator:active_participants(RoomPid),
+            [ begin
+                  UserStr = binary_to_list(maps:get(id, P)),
+                  EscId   = "member-" ++ re:replace(UserStr, "[^a-zA-Z0-9]", "-", [global, {return, list}]),
+                  JS = iolist_to_binary([
+                      "var id='", EscId, "';"
+                      "if(!document.getElementById(id)){"
+                          "var d=document.createElement('div');"
+                          "d.id=id; d.className='user-item';"
+                          "d.innerHTML='<div class=\"user-status\"></div><span>", UserStr, "</span>';"
+                          "document.getElementById('membersList').appendChild(d);"
+                      "}"
+                  ]),
+                  nitro:wire(JS)
+              end || P <- Participants ],
+
+            n2o:send(Key, #client{data = {member_joined, User}});
+        _ ->
+            nitro:redirect("/app/login.htm")
+    end;
 
 event(logout) ->
     Room = n2o:session(room),
     User = n2o:user(),
-    n2o:send({topic, Room}, #client{data = {member_left, User}}),
+    Token = n2o:session(token),
+    case Token of
+        undefined -> ok;
+        _ -> ets:delete(session_tokens, Token)
+    end,
+    case Room of
+        undefined -> ok;
+        _ ->
+            {ok, RoomPid} = room_coordinator:ensure_started(Room),
+            ok = room_coordinator:leave(RoomPid, list_to_binary(User)),
+            n2o:send({topic, Room}, #client{data = {member_left, User}})
+    end,
     n2o:user([]),
+    n2o:session(token, undefined),
     nitro:redirect("/app/login.htm");
 
 event(chat) -> chat(nitro:q(message), nitro);
 
 event(terminate_room) ->
     Room = n2o:session(room),
-    case media_broker_srv:terminate_room(Room) of
+    {ok, RoomPid} = room_coordinator:ensure_started(Room),
+    case room_coordinator:terminate_room(RoomPid) of
         {ok, Path} ->
             nitro:update(recording_info,
                 #span{id = recording_info, body = [<<"✅ Saved: ">>, Path]}),
@@ -92,6 +139,18 @@ event(#ftp{sid = Sid, filename = Filename, status = {event, stop}}) ->
     Name = hd(lists:reverse(string:tokens(nitro:to_list(Filename), "/"))),
     chat(nitro:render(#link{href = iolist_to_binary(["/app/", Sid, "/", Name]), body = Name}), index);
 
+event(terminate) ->
+    Room = n2o:session(room),
+    User = n2o:user(),
+    case {Room, User} of
+        {R, U} when R =/= undefined andalso R =/= [] andalso U =/= undefined andalso U =/= [] ->
+            {ok, RoomPid} = room_coordinator:ensure_started(R),
+            ok = room_coordinator:leave(RoomPid, list_to_binary(U)),
+            n2o:send({topic, R}, #client{data = {member_left, U}});
+        _ ->
+            ok
+    end;
+
 event(_Event) -> ok.
 
 jse(X) -> X.
@@ -99,6 +158,5 @@ jse(X) -> X.
 chat(Message, F) ->
     Room = n2o:session(room),
     User = n2o:user(),
-    Msg  = {'$msg', kvs:seq([], []), [], [], User, F:jse(Message)},
-    kvs:append(Msg, {topic, Room}),
-    n2o:send({topic, Room}, #client{data = Msg}).
+    {ok, RoomPid} = room_coordinator:ensure_started(Room),
+    room_coordinator:post_chat(RoomPid, User, F:jse(Message)).

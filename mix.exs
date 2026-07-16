@@ -5,6 +5,7 @@ defmodule Rtp.MixProject do
     [
       app: :rtp,
       version: "0.1.0",
+      aliases: aliases(),
       deps: deps()
     ]
   end
@@ -27,5 +28,22 @@ defmodule Rtp.MixProject do
       {:syn, git: "https://github.com/ostinelli/syn.git", tag: "3.4.2"},
       {:ex_doc, ">= 0.0.0", only: [:dev, :test]}
     ]
+  end
+
+  defp aliases do
+    [
+      compile: [&compile_gst/1, "compile"]
+    ]
+  end
+
+  defp compile_gst(_) do
+    File.mkdir_p!("priv")
+    cmd = "cc -O3 c_src/gst.c -o priv/gst $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)"
+    case System.shell(cmd) do
+      {_, 0} -> :ok
+      {output, status} ->
+        IO.puts(output)
+        raise "Compilation of gst.c failed with status #{status}"
+    end
   end
 end

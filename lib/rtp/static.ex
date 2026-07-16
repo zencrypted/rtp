@@ -1,8 +1,9 @@
 defmodule Rtp.Static do
   use Plug.Router
 
+  plug Rtp.LiveStream
   plug Plug.Static, at: "/app", from: {:rtp, "priv/static/app"}
-  plug Plug.Static, at: "/",    from: {:rtp, "priv/static"}
+  plug Plug.Static, at: "/",    from: {:rtp, "priv/static"}, headers: [{"cache-control", "no-cache"}]
   plug :match
   plug :dispatch
 

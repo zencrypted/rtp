@@ -11,8 +11,6 @@ defmodule Rtp.WS do
       "login"     -> :login
       "index.htm" -> :index
       "index"     -> :index
-      "mcu.htm"   -> :mcu
-      "mcu"       -> :mcu
       _           -> :login
     end
     conn
@@ -26,8 +24,9 @@ defmodule Rtp.WS do
     user = Map.get(conn.query_params, "user", "Anonymous")
     room = Map.get(conn.query_params, "room", "default")
     role = Map.get(conn.query_params, "role", "participant")
+    token = Map.get(conn.query_params, "token", "")
     conn
-    |> WebSockAdapter.upgrade(:n2o_signaling, {user, room, role}, timeout: 60_000)
+    |> WebSockAdapter.upgrade(:n2o_signaling, {user, room, role, token}, timeout: 60_000)
     |> halt()
   end
 

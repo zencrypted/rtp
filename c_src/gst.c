@@ -25,6 +25,7 @@ typedef struct {
     GstElement *v_convert;
     GstElement *a_convert;
     GstElement *a_resample;
+    gint grid_idx;
 } PeerInfo;
 
 static void free_peer_info(gpointer data) {
@@ -41,6 +42,7 @@ typedef struct {
     GstElement *audio_tee;
     GHashTable *webrtcbins; // Maps peer_id (gchar*) -> PeerInfo*
     GMainLoop *loop;
+    gboolean grid_slots[16];
     gint pad_index;
 } RecorderState;
 
@@ -147,6 +149,16 @@ static void setup_peer(const gchar *peer_id) {
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
     peer->webrtc = webrtc;
+    peer->grid_idx = -1;
+
+    for (int i = 0; i < 16; i++) {
+        if (!state.grid_slots[i]) {
+            state.grid_slots[i] = TRUE;
+            peer->grid_idx = i;
+            break;
+        }
+    }
+    if (peer->grid_idx == -1) peer->grid_idx = 0;
 
     gchar *vqueue_name = g_strdup_printf("vqueue_%s", peer_id);
     GstElement *v_queue = gst_element_factory_make("queue", vqueue_name);
@@ -297,6 +309,16 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_bin_remove(GST_BIN(state.pipeline), peer->webrtc);
     }
 
+    // Free up grid slot
+    if (peer->grid_idx >= 0 && peer->grid_idx < 16) {
+        state.grid_slots[peer->grid_idx] = FALSE;
+    }
+
+    // Free up grid slot
+    if (peer->grid_idx >= 0 && peer->grid_idx < 16) {
+        state.grid_slots[peer->grid_idx] = FALSE;
+    }
+
     // 6. Remove peer from hashtable (triggers free_peer_info)
     g_hash_table_remove(state.webrtcbins, peer_id);
     g_printerr("DEBUG: Cleaned up peer: %s\n", peer_id);
@@ -393,13 +415,13 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
         peer->comp_pad = comp_pad; // Keep ownership reference for cleanup
 
-        gint idx = state.pad_index++;
+        gint idx = peer->grid_idx;
         gint w = WIDTH / 2;
         gint h = HEIGHT / 2;
         gint x = (idx % 2) * w;
         gint y = (idx / 2) * h;
 
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint) (idx + 10), NULL);
+        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint) (idx + 10), "sizing-policy", 1, NULL);
         g_printerr("DEBUG: Linked video pad to compositor quadrant position (%d, %d) with zorder %u\n", x, y, idx + 10);
 
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
@@ -522,29 +544,47 @@ static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) 
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        g_printerr("Usage: %s <output_file>\n", argv[0]);
+        g_printerr("Usage: %s <output_directory>\n", argv[0]);
         return 1;
     }
-    const gchar *out_file = argv[1];
+    const gchar *out_dir = argv[1];
+    const gchar *format = (argc >= 3) ? argv[2] : "ts";
 
     gst_init(&argc, &argv);
 
     state.webrtcbins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, free_peer_info);
     state.pad_index = 1;
+    for (int i = 0; i < 16; i++) state.grid_slots[i] = FALSE;
     state.loop = g_main_loop_new(NULL, FALSE);
 
-    // Build the complete MCU mixing, recording, and broadcasting pipeline
-    gchar *pipeline_str = g_strdup_printf(
-        "videotestsrc pattern=black is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
-        "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-        "compositor name=mix ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
-        "speed-preset=ultrafast key-int-max=30 ! h264parse ! rtph264pay config-interval=1 ! tee name=vtee "
-        "audiomixer name=amix ! audioconvert ! audioresample ! opusenc ! rtpopuspay ! tee name=atee "
-        "vtee. ! queue ! rtph264depay ! h264parse ! mux. "
-        "atee. ! queue ! rtpopusdepay ! opusparse ! mux. "
-        "mp4mux name=mux reserved-max-duration=3600000000000 reserved-moov-update-period=1000000000 ! filesink location=%s",
-        out_file
-    );
+    gchar *pipeline_str = NULL;
+    if (g_strcmp0(format, "fmp4") == 0 || g_strcmp0(format, "mp4") == 0) {
+        g_printerr("Using fMP4 fragmented single file recording format.\n");
+        pipeline_str = g_strdup_printf(
+            "videotestsrc pattern=black is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
+            "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
+            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "mp4mux name=mux fragment-duration=1000 streamable=true ! filesink location=%s/recording.mp4 "
+            "vtee. ! queue leaky=2 ! rtph264depay ! h264parse ! mux.video_0 "
+            "atee. ! queue leaky=2 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
+            out_dir
+        );
+    } else {
+        g_printerr("Using HLS segment generation format.\n");
+        pipeline_str = g_strdup_printf(
+            "videotestsrc pattern=black is-live=true ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
+            "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4000 "
+            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "vtee. ! queue leaky=2 ! rtph264depay ! h264parse ! hlssink2.video "
+            "atee. ! queue leaky=2 ! rtpopusdepay ! opusdec ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
+            "hlssink2 name=hlssink2 location=%s/segment_%%05d.ts playlist-location=%s/index.m3u8 target-duration=1 max-files=0",
+            out_dir, out_dir
+        );
+    }
     state.pipeline = gst_parse_launch(pipeline_str, NULL);
     g_free(pipeline_str);
 
@@ -574,6 +614,9 @@ int main(int argc, char *argv[]) {
 
     gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
 
+    // Send a message to Erlang that the recording pipeline is playing
+    g_printerr("{\"type\": \"recording_started\"}\n");
+    
     // Setup stdin signaling channel reader via GLib IO channels
     GIOChannel *stdin_chan = g_io_channel_unix_new(0); // 0 = stdin
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);

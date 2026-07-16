@@ -7,16 +7,24 @@
     user_id :: binary(),
     room_id :: binary(),
     role :: binary(),
-    peer_id :: binary()
+    peer_id :: binary(),
+    room_pid :: pid()
 }).
 
-init({UserId, RoomId, Role}) ->
+init({UserId, RoomId, Role, Token}) ->
     PeerId = <<"peer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    {ok, RoomPid} = room_coordinator:ensure_started(RoomId),
+    case Token of
+        undefined -> ok;
+        <<>> -> ok;
+        _ -> session_token:update_device(Token, PeerId)
+    end,
     State = #state{
         user_id = UserId,
         room_id = RoomId,
         role = Role,
-        peer_id = PeerId
+        peer_id = PeerId,
+        room_pid = RoomPid
     },
     ok = syn:register(rooms, PeerId, self()),
     self() ! send_init_msg,
@@ -30,16 +38,16 @@ handle_in({Msg, Opts} = Frame, State) ->
             Data = jsone:decode(Msg),
             Type = maps:get(<<"type">>, Data, <<>>),
             PeerId = State#state.peer_id,
-            RoomId = State#state.room_id,
             case Type of
                 <<"ready">> ->
-                    media_broker_srv:peer_joined(RoomId, PeerId, self());
+                    {ok, StartedAt} = room_coordinator:originate_video(State#state.room_pid, PeerId, self()),
+                    self() ! {send_room_info, StartedAt};
                 _ ->
                     case Data of
                         #{<<"sdp">> := #{<<"type">> := <<"answer">>, <<"sdp">> := Sdp}} ->
-                            media_broker_srv:sdp_answer(RoomId, PeerId, Sdp);
+                            room_coordinator:sdp_answer(State#state.room_pid, PeerId, Sdp);
                         #{<<"candidate">> := Candidate} ->
-                            media_broker_srv:ice_candidate(RoomId, PeerId, Candidate);
+                            room_coordinator:ice_candidate(State#state.room_pid, PeerId, Candidate);
                         _ ->
                             ok
                     end
@@ -58,6 +66,15 @@ handle_info(send_init_msg, State) ->
         <<"peer_id">> => State#state.peer_id
     }),
     {push, {text, InitMsg}, State};
+
+handle_info({send_room_info, StartedAt}, State) ->
+    HlsFormat = application:get_env(rtp, hls_format, fmp4),
+    RoomInfoMsg = jsone:encode(#{
+        <<"type">> => <<"room_info">>,
+        <<"started_at">> => StartedAt,
+        <<"hls_format">> => HlsFormat
+    }),
+    {push, {text, RoomInfoMsg}, State};
 
 handle_info({sdp_offer, Sdp}, State) ->
     Payload = jsone:encode(#{
@@ -79,7 +96,6 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State) ->
     PeerId = State#state.peer_id,
-    RoomId = State#state.room_id,
-    media_broker_srv:peer_left(RoomId, PeerId),
+    room_coordinator:peer_left(State#state.room_pid, PeerId),
     syn:unregister(rooms, PeerId),
     ok.

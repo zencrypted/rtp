@@ -1,9 +1,10 @@
 -module(media_broker_srv).
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
+-include_lib("n2o/include/n2o.hrl").
 
 %% API
--export([start_link/0, peer_joined/3, sdp_answer/3, ice_candidate/3, peer_left/2, terminate_room/1, recording_path/1]).
+-export([start_link/0, peer_joined/4, sdp_answer/4, ice_candidate/4, peer_left/3, terminate_room/2, recording_path/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -11,61 +12,72 @@
 -record(state, {
     ports = #{},       % RoomId :: binary() -> Port :: port()
     room_peers = #{},  % RoomId :: binary() -> [PeerId :: binary()]
-    peer_rooms = #{}   % PeerId :: binary() -> RoomId :: binary()
+    peer_rooms = #{},   % PeerId :: binary() -> RoomId :: binary()
+    room_started_at = #{} % RoomId :: binary() -> Timestamp :: integer()
 }).
 
 %% API Functions
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link(?MODULE, [], []).
 
-peer_joined(RoomId, PeerId, ClientPid) ->
-    gen_server:call(?MODULE, {peer_joined, RoomId, PeerId, ClientPid}).
+peer_joined(BrokerPid, RoomId, PeerId, ClientPid) ->
+    gen_server:call(BrokerPid, {peer_joined, RoomId, PeerId, ClientPid}).
 
-sdp_answer(RoomId, PeerId, Sdp) ->
-    gen_server:cast(?MODULE, {sdp_answer, RoomId, PeerId, Sdp}).
+sdp_answer(BrokerPid, RoomId, PeerId, Sdp) ->
+    gen_server:cast(BrokerPid, {sdp_answer, RoomId, PeerId, Sdp}).
 
-ice_candidate(RoomId, PeerId, Candidate) ->
-    gen_server:cast(?MODULE, {ice_candidate, RoomId, PeerId, Candidate}).
+ice_candidate(BrokerPid, RoomId, PeerId, Candidate) ->
+    gen_server:cast(BrokerPid, {ice_candidate, RoomId, PeerId, Candidate}).
 
-peer_left(RoomId, PeerId) ->
-    gen_server:cast(?MODULE, {peer_left, RoomId, PeerId}).
+peer_left(BrokerPid, RoomId, PeerId) ->
+    gen_server:cast(BrokerPid, {peer_left, RoomId, PeerId}).
 
-terminate_room(RoomId) ->
-    gen_server:call(?MODULE, {terminate_room, RoomId}).
+terminate_room(BrokerPid, RoomId) ->
+    gen_server:call(BrokerPid, {terminate_room, RoomId}).
 
 recording_path(RoomId) ->
     case RoomId of
-        <<"court-room-room123">> -> filename:absname("output.mp4");
-        _ -> filename:absname("room_" ++ binary_to_list(RoomId) ++ ".mp4")
+        <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123/index.m3u8");
+        _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId) ++ "/index.m3u8")
     end.
 
 %% gen_server Callbacks
 
 init([]) ->
+    process_flag(trap_exit, true),
     {ok, #state{}}.
 
 handle_call({peer_joined, RoomId, PeerId, _ClientPid}, _From, State) ->
-    {Port, NewPorts} = case maps:find(RoomId, State#state.ports) of
+    {Port, NewPorts, StartedAt, NewStartedAt} = case maps:find(RoomId, State#state.ports) of
         {ok, P} ->
-            {P, State#state.ports};
+            {P, State#state.ports, maps:get(RoomId, State#state.room_started_at), State#state.room_started_at};
         error ->
+            Now = erlang:system_time(millisecond),
             Binary = filename:absname(find_binary()),
-            OutFile = case RoomId of
-                <<"court-room-room123">> -> "output.mp4";
-                _ -> "room_" ++ binary_to_list(RoomId) ++ ".mp4"
+            OutDir = case RoomId of
+                <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123");
+                _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId))
             end,
-            error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutFile]),
+            filelib:ensure_dir(OutDir ++ "/"),
+            os:cmd("rm -f " ++ OutDir ++ "/*"),
+            error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutDir]),
+            HlsFormat = application:get_env(rtp, hls_format, fmp4),
+            FormatStr = atom_to_list(HlsFormat),
             P = open_port({spawn_executable, Binary}, [
                 binary,
                 stream,
-                {args, [OutFile]},
+                {args, [OutDir, FormatStr]},
                 use_stdio,
                 stderr_to_stdout,
                 exit_status,
-                {line, 16384}
+                {line, 16384},
+                {env, [
+                    {"GST_GL_WINDOW", "none"},
+                    {"GST_PLUGIN_FEATURE_FILTER", "opengl:0,applemedia:0"}
+                ]}
             ]),
-            {P, maps:put(RoomId, P, State#state.ports)}
+            {P, maps:put(RoomId, P, State#state.ports), Now, maps:put(RoomId, Now, State#state.room_started_at)}
     end,
     
     send_to_port(Port, #{
@@ -77,24 +89,19 @@ handle_call({peer_joined, RoomId, PeerId, _ClientPid}, _From, State) ->
     NewRoomPeers = maps:put(RoomId, [PeerId | Peers], State#state.room_peers),
     NewPeerRooms = maps:put(PeerId, RoomId, State#state.peer_rooms),
     
-    {reply, ok, State#state{
+    {reply, {ok, StartedAt}, State#state{
         ports = NewPorts,
         room_peers = NewRoomPeers,
-        peer_rooms = NewPeerRooms
+        peer_rooms = NewPeerRooms,
+        room_started_at = NewStartedAt
     }};
 
 handle_call({terminate_room, RoomId}, _From, State) ->
     case maps:find(RoomId, State#state.ports) of
         {ok, Port} ->
             error_logger:info_msg("Terminating GStreamer for room ~s, finalizing mp4~n", [RoomId]),
-            catch port_close(Port),
-            Peers = maps:get(RoomId, State#state.room_peers, []),
-            NewPeerRooms = lists:foldl(fun(P, M) -> maps:remove(P, M) end, State#state.peer_rooms, Peers),
-            {reply, {ok, recording_path(RoomId)}, State#state{
-                ports     = maps:remove(RoomId, State#state.ports),
-                room_peers = maps:remove(RoomId, State#state.room_peers),
-                peer_rooms = NewPeerRooms
-            }};
+            send_to_port(Port, #{<<"type">> => <<"exit">>}),
+            {reply, {ok, recording_path(RoomId)}, State};
         error ->
             {reply, {error, not_found}, State}
     end;
@@ -135,22 +142,43 @@ handle_cast({peer_left, RoomId, PeerId}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({_Port, {data, {eol, LineBin}}}, State) ->
+handle_info({Port, {data, {eol, LineBin}}}, State) ->
     case catch jsone:decode(LineBin) of
         #{<<"type">> := <<"sdp_offer">>, <<"peer_id">> := PeerId, <<"sdp">> := Sdp} ->
             case syn:lookup(rooms, PeerId) of
                 {Pid, _} -> Pid ! {sdp_offer, Sdp};
                 undefined -> ok
-            end;
+            end,
+            {noreply, State};
         #{<<"type">> := <<"ice_candidate">>, <<"peer_id">> := PeerId, <<"candidate">> := Candidate} ->
             case syn:lookup(rooms, PeerId) of
                 {Pid, _} -> Pid ! {ice_candidate, Candidate};
                 undefined -> ok
+            end,
+            {noreply, State};
+        #{<<"type">> := <<"recording_started">>} ->
+            RoomId = find_room_by_port(Port, State#state.ports),
+            case RoomId of
+                undefined -> {noreply, State};
+                _ ->
+                    RealStart = erlang:system_time(millisecond),
+                    %% Broadcast to the room
+                    HlsFormat = application:get_env(rtp, hls_format, fmp4),
+                    RoomInfoMsg = jsone:encode(#{
+                        <<"type">> => <<"room_info">>,
+                        <<"started_at">> => RealStart,
+                        <<"hls_format">> => HlsFormat
+                    }),
+                    Msg = {'$msg', kvs:seq([], []), [], [], self(), RoomInfoMsg},
+                    n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
+                    
+                    NewStartedAt = maps:put(RoomId, RealStart, State#state.room_started_at),
+                    {noreply, State#state{room_started_at = NewStartedAt}}
             end;
         _Other ->
-            error_logger:info_msg("GStreamer Output (~p): ~s~n", [self(), LineBin])
-    end,
-    {noreply, State};
+            error_logger:info_msg("GStreamer Output (~p): ~s~n", [self(), LineBin]),
+            {noreply, State}
+    end;
 
 handle_info({Port, {exit_status, Status}}, State) ->
     error_logger:info_msg("GStreamer port ~p exited with status ~p~n", [Port, Status]),

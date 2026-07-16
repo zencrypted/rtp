@@ -17,6 +17,16 @@ defmodule Rtp.LiveStream do
         else
           send_resp(conn, 404, "Not Found")
         end
+      ["rooms", room_name, "index.m3u8"] ->
+        file_path = "priv/static/rooms/#{room_name}/index.m3u8"
+        if File.exists?(file_path) do
+          conn
+          |> put_resp_header("content-type", "application/vnd.apple.mpegurl")
+          |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
+          |> send_resp(200, File.read!(file_path))
+        else
+          send_resp(conn, 404, "Not Found")
+        end
       _ ->
         conn
     end

@@ -66,15 +66,20 @@ static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer
     gsize length = 0;
     GError *error = NULL;
 
-    if (g_io_channel_read_line(source, &line, &length, NULL, &error) == G_IO_STATUS_NORMAL) {
+    GIOStatus status = g_io_channel_read_line(source, &line, &length, NULL, &error);
+    if (status == G_IO_STATUS_NORMAL) {
         if (line) {
             handle_signaling_message(line);
             g_free(line);
         }
-    }
-    if (error) {
-        g_printerr("Error reading stdin: %s\n", error->message);
-        g_clear_error(&error);
+    } else if (status == G_IO_STATUS_EOF || status == G_IO_STATUS_ERROR) {
+        g_printerr("DEBUG: stdin EOF or error, exiting main loop...\n");
+        g_main_loop_quit(state.loop);
+        if (error) {
+            g_printerr("Error reading stdin: %s\n", error->message);
+            g_clear_error(&error);
+        }
+        return FALSE;
     }
     return TRUE;
 }
@@ -82,9 +87,19 @@ static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer
 // Handle offer creation callback
 static void on_offer_created(GstPromise *promise, gpointer user_data) {
     gchar *peer_id = (gchar *)user_data;
+    g_printerr("DEBUG: on_offer_created promise callback triggered for peer: %s\n", peer_id);
     const GstStructure *reply = gst_promise_get_reply(promise);
+    if (!reply) {
+        g_printerr("DEBUG: promise reply is NULL!\n");
+        return;
+    }
     GstWebRTCSessionDescription *offer = NULL;
     gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, NULL);
+    if (!offer) {
+        g_printerr("DEBUG: offer structure is NULL!\n");
+        return;
+    }
+    g_printerr("DEBUG: successfully generated SDP offer\n");
 
     PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
     GstElement *webrtc = peer ? peer->webrtc : NULL;

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login - GStreamer MCU</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/rtp.css" />
+</head>
+<body class="login-page">
+    <div class="login-card">
+        <div style="display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+            <div class="brand-dot"></div>
+            <h1 style="font-size: 1.5rem; font-weight: 700;">GStreamer MCU</h1>
+        </div>
+        <h2>Welcome Back</h2>
+        <p>Please enter your nickname and room name to enter the conference.</p>
+        
+        <div>
+            <div class="form-group">
+                <label for="user">Choose Nickname:</label>
+                <input id="user" type="text" placeholder="e.g. Alice" autofocus />
+            </div>
+            <div class="form-group">
+                <label for="pass">Join or Create Room:</label>
+                <input id="pass" type="text" placeholder="e.g. courtroom123" />
+            </div>
+            <div style="margin-top: 1.5rem;">
+                <span id="loginButton">12341234</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://ws.n2o.dev/priv/utf8.js"></script>
+    <script src="https://ws.n2o.dev/priv/bert.js"></script>
+    <script src="https://ws.n2o.dev/priv/heart.js"></script>
+    <script src="https://ws.n2o.dev/priv/n2o.js"></script>
+    <script>host = location.hostname; port = 8001; debug = true;</script>
+    <script src="https://ws.n2o.dev/priv/ftp.js"></script>
+    <script src="https://nitro.n2o.dev/priv/js/nitro.js"></script>
+    <script>protos = [$bert]; N2O_start();</script>
+    <script>
+        // Pre-fill last-used nickname and room (no auto-redirect — user must click Login)
+        window.addEventListener('DOMContentLoaded', () => {
+            const u = localStorage.getItem('rtp_user');
+            const r = localStorage.getItem('rtp_room');
+            if (u) document.getElementById('user').value = u;
+            if (r) document.getElementById('pass').value = r;
+        });
+    </script>
+</body>
+</html>

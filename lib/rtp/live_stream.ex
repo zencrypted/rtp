@@ -29,7 +29,10 @@ defmodule Rtp.LiveStream do
               |> send_resp(200, File.read!(file_path))
               |> halt()
             else
-              conn |> send_resp(404, "Not Found") |> halt()
+              conn 
+              |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
+              |> send_resp(404, "Not Found") 
+              |> halt()
             end
           String.ends_with?(file_name, ".ts") ->
             if File.exists?(file_path) do

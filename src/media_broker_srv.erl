@@ -13,7 +13,8 @@
     ports = #{},       % RoomId :: binary() -> Port :: port()
     room_peers = #{},  % RoomId :: binary() -> [PeerId :: binary()]
     peer_rooms = #{},   % PeerId :: binary() -> RoomId :: binary()
-    room_started_at = #{} % RoomId :: binary() -> Timestamp :: integer()
+    room_started_at = #{}, % RoomId :: binary() -> Timestamp :: integer()
+    monitors = #{}     % MonitorRef :: reference() -> {RoomId, PeerId}
 }).
 
 %% API Functions
@@ -48,7 +49,7 @@ init([]) ->
     process_flag(trap_exit, true),
     {ok, #state{}}.
 
-handle_call({peer_joined, RoomId, PeerId, _ClientPid}, _From, State) ->
+handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
     {Port, NewPorts, StartedAt, NewStartedAt} = case maps:find(RoomId, State#state.ports) of
         {ok, P} ->
             {P, State#state.ports, maps:get(RoomId, State#state.room_started_at), State#state.room_started_at};
@@ -64,10 +65,12 @@ handle_call({peer_joined, RoomId, PeerId, _ClientPid}, _From, State) ->
             error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutDir]),
             HlsFormat = application:get_env(rtp, hls_format, fmp4),
             FormatStr = atom_to_list(HlsFormat),
+            Args = [OutDir, FormatStr],
+            error_logger:info_msg("Starting GStreamer MCU: ~p ~p~n", [Binary, Args]),
             P = open_port({spawn_executable, Binary}, [
                 binary,
                 stream,
-                {args, [OutDir, FormatStr]},
+                {args, Args},
                 use_stdio,
                 stderr_to_stdout,
                 exit_status,
@@ -85,15 +88,25 @@ handle_call({peer_joined, RoomId, PeerId, _ClientPid}, _From, State) ->
         <<"peer_id">> => PeerId
     }),
     
+    Ref = monitor(process, ClientPid),
+    NewMonitors = maps:put(Ref, {RoomId, PeerId}, State#state.monitors),
+    
     Peers = maps:get(RoomId, State#state.room_peers, []),
     NewRoomPeers = maps:put(RoomId, [PeerId | Peers], State#state.room_peers),
     NewPeerRooms = maps:put(PeerId, RoomId, State#state.peer_rooms),
     
-    {reply, {ok, StartedAt}, State#state{
+    PlaylistPath = recording_path(RoomId),
+    Status = case filelib:is_regular(PlaylistPath) of
+        true -> ok;
+        false -> pending
+    end,
+    
+    {reply, {Status, StartedAt}, State#state{
         ports = NewPorts,
         room_peers = NewRoomPeers,
         peer_rooms = NewPeerRooms,
-        room_started_at = NewStartedAt
+        room_started_at = NewStartedAt,
+        monitors = NewMonitors
     }};
 
 handle_call({terminate_room, RoomId}, _From, State) ->
@@ -162,16 +175,7 @@ handle_info({Port, {data, {eol, LineBin}}}, State) ->
                 undefined -> {noreply, State};
                 _ ->
                     RealStart = erlang:system_time(millisecond),
-                    %% Broadcast to the room
-                    HlsFormat = application:get_env(rtp, hls_format, fmp4),
-                    RoomInfoMsg = jsone:encode(#{
-                        <<"type">> => <<"room_info">>,
-                        <<"started_at">> => RealStart,
-                        <<"hls_format">> => HlsFormat
-                    }),
-                    Msg = {'$msg', kvs:seq([], []), [], [], <<"System">>, RoomInfoMsg},
-                    n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
-                    
+                    self() ! {poll_manifest, RoomId, RealStart, 0},
                     NewStartedAt = maps:put(RoomId, RealStart, State#state.room_started_at),
                     {noreply, State#state{room_started_at = NewStartedAt}}
             end;
@@ -198,6 +202,50 @@ handle_info({Port, {exit_status, Status}}, State) ->
             }}
     end;
 
+handle_info({'EXIT', From, Reason}, State) ->
+    case is_port(From) of
+        true ->
+            {noreply, State};
+        false ->
+            error_logger:info_msg("media_broker_srv parent exited: ~p (~p). Terminating.~n", [From, Reason]),
+            {stop, Reason, State}
+    end;
+
+handle_info({'DOWN', Ref, process, _Pid, _Reason}, State) ->
+    case maps:find(Ref, State#state.monitors) of
+        {ok, {RoomId, PeerId}} ->
+            NewMonitors = maps:remove(Ref, State#state.monitors),
+            Peers = maps:get(RoomId, State#state.room_peers, []),
+            case lists:member(PeerId, Peers) of
+                true ->
+                    error_logger:info_msg("media_broker_srv: Peer ~s process died. Cleaning up.~n", [PeerId]),
+                    State1 = handle_peer_departure(RoomId, PeerId, State),
+                    {noreply, State1#state{monitors = NewMonitors}};
+                false ->
+                    {noreply, State#state{monitors = NewMonitors}}
+            end;
+        error ->
+            {noreply, State}
+    end;
+
+handle_info({poll_manifest, RoomId, StartedAt, Attempts}, State) ->
+    PlaylistPath = recording_path(RoomId),
+    case filelib:is_regular(PlaylistPath) of
+        true ->
+            error_logger:info_msg("HLS manifest ~s is ready on disk. Notifying clients.~n", [PlaylistPath]),
+            notify_room_info(RoomId, StartedAt, State),
+            {noreply, State};
+        false ->
+            if
+                Attempts < 50 ->
+                    erlang:send_after(100, self(), {poll_manifest, RoomId, StartedAt, Attempts + 1}),
+                    {noreply, State};
+                true ->
+                    error_logger:error_msg("Timeout waiting for HLS manifest ~s~n", [PlaylistPath]),
+                    {noreply, State}
+            end
+    end;
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -213,6 +261,24 @@ code_change(_OldVsn, State, _Extra) ->
 send_to_port(Port, Map) ->
     Json = jsone:encode(Map),
     port_command(Port, [Json, <<"\n">>]).
+
+notify_room_info(RoomId, StartedAt, State) ->
+    HlsFormat = application:get_env(rtp, hls_format, fmp4),
+    RoomInfoMsg = jsone:encode(#{
+        <<"type">> => <<"room_info">>,
+        <<"started_at">> => StartedAt,
+        <<"hls_format">> => HlsFormat
+    }),
+    Msg = {'$msg', kvs:seq([], []), [], [], <<"System">>, RoomInfoMsg},
+    n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
+    
+    Peers = maps:get(RoomId, State#state.room_peers, []),
+    lists:foreach(fun(PeerId) ->
+        case syn:lookup(rooms, PeerId) of
+            {Pid, _} -> Pid ! {send_room_info, StartedAt};
+            undefined -> ok
+        end
+    end, Peers).
 
 handle_peer_departure(RoomId, PeerId, State) ->
     case maps:find(RoomId, State#state.ports) of

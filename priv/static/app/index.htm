@@ -729,7 +729,12 @@
                                 console.warn('HLS Network error, retrying in 1s...', data);
                                 setTimeout(() => {
                                     if (window.hlsPlayer) {
-                                        window.hlsPlayer.startLoad();
+                                        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.details === 'manifestLoadError') {
+                                            const bustUrl = playlistUrl + '?t=' + Date.now();
+                                            window.hlsPlayer.loadSource(bustUrl);
+                                        } else {
+                                            window.hlsPlayer.startLoad();
+                                        }
                                     }
                                 }, 1000);
                                 break;

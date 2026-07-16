@@ -124,8 +124,8 @@ handle_call({originate_video, PeerId, ClientPid}, _From, State) ->
         Pid ->
             {State, Pid}
     end,
-    {ok, StartedAt} = media_broker_srv:peer_joined(BrokerPid, State#state.room_id, PeerId, ClientPid),
-    {reply, {ok, StartedAt}, NewState};
+    {Status, StartedAt} = media_broker_srv:peer_joined(BrokerPid, State#state.room_id, PeerId, ClientPid),
+    {reply, {Status, StartedAt}, NewState};
 
 handle_call({sdp_answer, PeerId, Sdp}, _From, State) ->
     case State#state.media_broker of

@@ -40,8 +40,12 @@ handle_in({Msg, Opts} = Frame, State) ->
             PeerId = State#state.peer_id,
             case Type of
                 <<"ready">> ->
-                    {ok, StartedAt} = room_coordinator:originate_video(State#state.room_pid, PeerId, self()),
-                    self() ! {send_room_info, StartedAt};
+                    case room_coordinator:originate_video(State#state.room_pid, PeerId, self()) of
+                        {ok, StartedAt} ->
+                            self() ! {send_room_info, StartedAt};
+                        {pending, _StartedAt} ->
+                            ok
+                    end;
                 _ ->
                     case Data of
                         #{<<"sdp">> := #{<<"type">> := <<"answer">>, <<"sdp">> := Sdp}} ->

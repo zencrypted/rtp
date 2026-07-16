@@ -228,12 +228,12 @@ find_room_by_port(Port, Ports) ->
 find_binary() ->
     Paths = [
         case code:priv_dir(rtp) of
-            {error, bad_name} -> "./priv/gst_recorder";
-            D -> filename:join(D, "gst_recorder")
+            {error, bad_name} -> "./priv/gst";
+            D -> filename:join(D, "gst")
         end,
-        "./priv/gst_recorder",
-        "../priv/gst_recorder",
-        "../../priv/gst_recorder"
+        "./priv/gst",
+        "../priv/gst",
+        "../../priv/gst"
     ],
     find_existing_path(Paths).
 
@@ -243,4 +243,4 @@ find_existing_path([Path | T]) ->
         false -> find_existing_path(T)
     end;
 find_existing_path([]) ->
-    "./priv/gst_recorder".
+    "./priv/gst".

@@ -28,7 +28,7 @@ graph TD
     Client1[Client 1] <-->|WebSocket JSON| Sig[signal.js Signaling Server]
     Client2[Client 2] <-->|WebSocket JSON| Sig
     Client3[Client 3] <-->|WebSocket JSON| Sig
-    Sig <-->|stdin / stdout JSON| Mixer[gst-mixer.sh / gst_recorder]
+    Sig <-->|stdin / stdout JSON| Mixer[gst-mixer.sh / gst]
     
     Client1 -.->|WebRTC Upstream| Mixer
     Client2 -.->|WebRTC Upstream| Mixer
@@ -149,7 +149,7 @@ brew install gstreamer libnice libnice-gstreamer node
 ### 2. Compile the Mixer Binary
 Build the GStreamer recorder binary using `pkg-config`:
 ```bash
-cc -O3 c_src/gst.c -o priv/gst_recorder $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
+cc -O3 c_src/gst.c -o priv/gst $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
 ```
 
 ### 3. Launch the Signaling & Web Server

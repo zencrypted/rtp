@@ -5,7 +5,7 @@
 -include_lib("n2o/include/n2o.hrl").
 
 %% API
--export([start_link/1, join/2, leave/2, get_state/1, start_recording/2, stop_recording/1,
+-export([start_link/1, join/2, leave/2, get_state/1,
          ensure_started/1, post_chat/3, originate_video/3, sdp_answer/3, ice_candidate/3,
          peer_left/2, terminate_room/1, active_participants/1]).
 
@@ -16,8 +16,6 @@
     room_id :: binary(),
     participants = [] :: list(),
     publishers = [] :: list(),
-    recording = false :: boolean(),
-    recording_file = undefined :: string() | undefined,
     media_broker = undefined :: pid() | undefined
 }).
 
@@ -78,12 +76,6 @@ terminate_room(RoomPid) ->
 
 get_state(RoomPid) ->
     gen_server:call(RoomPid, get_state).
-
-start_recording(RoomPid, LiveKitUrl) ->
-    gen_server:call(RoomPid, {start_recording, LiveKitUrl}).
-
-stop_recording(RoomPid) ->
-    gen_server:call(RoomPid, stop_recording).
 
 %% gen_server Callbacks
 
@@ -156,34 +148,6 @@ handle_call(terminate_room, _From, State) ->
             Res = media_broker_srv:terminate_room(BrokerPid, State#state.room_id),
             catch gen_server:stop(BrokerPid),
             {reply, Res, State#state{media_broker = undefined}}
-    end;
-
-handle_call({start_recording, _LiveKitUrl}, _From, State) ->
-    case State#state.recording of
-        true ->
-            {reply, {error, already_recording}, State};
-        false ->
-            case State#state.media_broker of
-                undefined ->
-                    {reply, {error, no_media_broker}, State};
-                _BrokerPid ->
-                    %% Stub: start_mixing not implemented in media_broker_srv
-                    {reply, {error, not_supported}, State}
-            end
-    end;
-
-handle_call(stop_recording, _From, State) ->
-    case State#state.recording of
-        false ->
-            {reply, {error, not_recording}, State};
-        true ->
-            case State#state.media_broker of
-                undefined ->
-                    {reply, {error, no_media_broker}, State};
-                _BrokerPid ->
-                    %% Stub
-                    {reply, ok, State#state{recording = false}}
-            end
     end;
 
 handle_call(get_state, _From, State) ->

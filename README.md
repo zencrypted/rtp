@@ -188,3 +188,54 @@ The demultiplexing of raw compositor output to simultaneous WebRTC (RTP) and HLS
 - **Destructive RTP Payload Cycles:** Earlier architectural iterations routed encoded H.264 video through an RTP payloading step (`rtph264pay`) before teeing the stream to the WebRTC egress and the HLS storage sink. Because the HLS sink requires a raw bitstream rather than RTP packets, the stream had to be depayloaded (`rtph264depay`). However, the RTP payload/depayload cycle is highly destructive to exact PTS and DTS (Decode Time Stamp) accuracy. `mpegtsmux` (which `hlssink2` utilizes internally) is notoriously intolerant of PTS/DTS discontinuities. These microscopic timestamp jumps resulted in generated `.ts` segments that would cause browser MSE (MediaSource Extension) implementations to silently panic and permanently freeze playback after the first segment.
 - **Direct-to-Sink Tee Branching:** To mathematically guarantee PTS synchronization, the pipeline is architected using precise post-parse/pre-payload Tees (`h264_tee` and `raw_atee`). The video stream is bifurcated immediately *after* `h264parse`, sending a pristine, unbroken bitstream directly to `hlssink2` while a secondary branch handles the RTP payloading for WebRTC participants. The audio stream similarly bifurcates the raw `audiomixer` output directly into the AAC encoder, bypassing the WebRTC Opus encoder entirely.
 - **Eliminating Disk-IO Throttling Jitter:** The secondary branching introduces asynchronous dependency. If the `hlssink2` disk writer stalls for even milliseconds (e.g., when flushing a 1MB `.ts` chunk to the filesystem), upstream queue exhaustion can cause violent frame drops if configured with strict limits (e.g., standard 1.2-second bounds). To prevent this, the architecture employs massively expanded leaky queues (`queue max-size-time=30000000000 leaky=2`) providing astronomical 30-second memory buffers. If the disk writer blocks, frames pool gracefully in RAM rather than being dropped, mathematically guaranteeing the HLS feed remains as perfectly smooth as the WebRTC broadcast.
+
+## ITU-T H-Series Recommendations
+
+Video Codecs:
+
+* H.261	Origin of DCT video coding
+* H.263	Low bit-rate video (legacy WebRTC)
+* H.264	AVC — active (x264enc in gst.c)
+* H.265	HEVC — active (hevc pipeline in gst.c)
+* H.266	VVC — future
+
+🎵 Audio Codecs:
+
+* G.711	PCM 64 kbit/s — WebRTC baseline
+* G.718	Wideband embedded variable bit-rate
+* G.719	Full-band conversational audio (closest ITU to Opus)
+* G.722	7 kHz wideband — WebRTC HD voice
+* G.728	16 kbit/s LD-CELP
+* G.729	8 kbit/s CS-ACELP
+
+Packet Multimedia & MCU:
+
+* H.320	Narrow-band visual telephone (MCU reference)
+* H.323	Packet multimedia systems — mirrors room_coordinator
+* H.324	Low bit-rate multimedia terminal
+* H.332	H.323 for loosely coupled conferences
+* H.350	Directory services for multimedia conferencing
+
+Security:
+
+* H.235	H.323 security framework
+* H.235.7	MIKEY/SRTP key management
+* H.235.8	SRTP key exchange via secure signaling (= DTLS)
+
+Control & Negotiation:
+
+* H.239	Role management (participant/presenter — matches role in n2o_signaling)
+* H.241	Extended video procedures / codec capability
+* H.245	Control protocol for multimedia (= SDP in WebRTC)
+
+QoS & Timing:
+
+* H.361	End-to-end QoS priority signaling
+* J.161	Codec requirements for bidirectional IP audio/video
+* P.931	Delay, synchronization and frame rate measurement
+
+Data Conferencing (N2O chat):
+
+* T.120	Data protocols for multimedia conferencing
+* T.123	Protocol stacks for conferencing (≈ WebSocket transport)
+* T.124	Generic conference control (≈ room_coordinator)

@@ -151,3 +151,32 @@ This automatically exports OpenSSL/libyaml configurations, compiles the codebase
 ```
 
 Once booted, access the video interface at `http://localhost:8081/app/login.htm`.
+
+## 5. Media Pipeline Architecture and Delivery Nuances
+
+The system employs an advanced, multi-modal GStreamer pipeline capable of synthesizing grid-composited media from real-time WebRTC ingest and demultiplexing it to heterogeneous endpoints. The architecture natively supports three distinct fragmentation and streaming topologies tailored to varied latency and browser compatibility constraints.
+
+### 5.1 Fragmented Streaming Topologies
+
+#### 1. Fragmented MP4 (fMP4)
+- **Mechanism:** The pipeline generates a single, continuously growing `recording.mp4` file encoded via `x264enc`.
+- **Packaging:** Handled by `mp4mux` with `fragment-duration=1000` and `streamable=true`. This avoids building a massive Moov atom at the end of the file and interleaves Moof (Movie Fragment) and Mdat (Media Data) atoms sequentially.
+- **Delivery Characteristics:** Suitable for environments requiring unified file storage while still supporting progressive HTTP download. However, the lack of definitive manifest metadata natively prevents clients from dynamically adapting to shifting live edge bounds, making it less optimal for robust Live streaming.
+
+#### 2. MPEG-TS (H.264 / AAC)
+- **Mechanism:** The pipeline leverages `hlssink2` to generate discrete 2-second Transport Stream (`.ts`) segments accompanied by a dynamically updating `index.m3u8` playlist.
+- **Packaging:** Encoded using the ubiquitous H.264 (`x264enc`) and AAC codecs, guaranteeing maximal compatibility across legacy and modern web environments.
+- **Delivery Characteristics:** Operates as the default robust fallback. By utilizing `target-duration=2` and `playlist-length=10`, the system maintains a 20-second rolling buffer. This generous buffer window absorbs network transmission jitter and encoder processing variance, ensuring contiguous client-side playback.
+
+#### 3. HEVC (H.265 / AAC)
+- **Mechanism:** An experimental high-efficiency tier utilizing `x265enc` exclusively for the HLS storage/delivery path.
+- **Packaging:** Due to limited browser support for WebRTC over H.265, the pipeline executes a *dual-encoding* strategy. The composited raw video is teed (`raw_vtee`); one branch proceeds to an H.264 encoder to sustain real-time WebRTC participant feeds, while the second branch proceeds to an H.265 encoder targeting the `hlssink2` destination.
+- **Delivery Characteristics:** Provides substantially improved visual fidelity at equivalent bitrates or bandwidth conservation at equivalent quality. Delivery targets modern ecosystems (e.g., Apple Safari/iOS) capable of natively decoding H.265 TS segments.
+
+### 5.2 Nuances of Live HLS Delivery and Caching Pathologies
+
+Delivering micro-segmented live HLS playlists (`index.m3u8`) over a standard web server introduces critical HTTP caching pathologies that severely degrade playback continuity.
+
+- **The ETag Stalling Phenomenon:** Modern static web servers (such as Elixir's `Plug.Static`) utilize `ETag` headers or `Last-Modified` timestamps to negotiate cache revalidation (HTTP 304 Not Modified). In a live HLS context where `target-duration` is short (e.g., 2 seconds) and the `playlist-length` is fixed (e.g., 10 segments), the `index.m3u8` file frequently maintains identical byte sizes across successive updates. If an update occurs within the 1-second truncation threshold of standard filesystem `mtime` resolutions, the web server heuristically concludes the file has not mutated.
+- **Client Starvation:** When `hls.js` attempts to poll the playlist to discover the next sequential `.ts` segment, the web server replies with `304 Not Modified`. The player is deceived into believing no new segments exist, rapidly exhausting its internal buffer and resulting in a hard stall.
+- **The Absolute No-Store Intervention:** To mathematically guarantee playlist freshness, the routing architecture explicitly intercepts `.m3u8` requests prior to static file evaluation (via `Rtp.LiveStream`). The handler deliberately strips all `ETag` generation capabilities, forcibly embeds aggressive cache-busting directives (`Cache-Control: no-store, no-cache, must-revalidate, max-age=0`), and serves the raw file binaries. This circumvents the HTTP revalidation cycle entirely, ensuring deterministic delivery of the live edge state.

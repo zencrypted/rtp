@@ -12,20 +12,37 @@ defmodule Rtp.LiveStream do
                  |> put_resp_header("content-type", "video/mp4")
                  |> put_resp_header("cache-control", "no-cache")
                  |> send_chunked(200)
-          
+
           stream_growing_file(conn, file_path, 0)
+          |> halt()
         else
-          send_resp(conn, 404, "Not Found")
+          conn |> send_resp(404, "Not Found") |> halt()
         end
-      ["rooms", room_name, "index.m3u8"] ->
-        file_path = "priv/static/rooms/#{room_name}/index.m3u8"
-        if File.exists?(file_path) do
-          conn
-          |> put_resp_header("content-type", "application/vnd.apple.mpegurl")
-          |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
-          |> send_resp(200, File.read!(file_path))
-        else
-          send_resp(conn, 404, "Not Found")
+      ["rooms", room_name, file_name] ->
+        file_path = "priv/static/rooms/#{room_name}/#{file_name}"
+        cond do
+          file_name == "index.m3u8" ->
+            if File.exists?(file_path) do
+              conn
+              |> put_resp_header("content-type", "application/vnd.apple.mpegurl")
+              |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
+              |> send_resp(200, File.read!(file_path))
+              |> halt()
+            else
+              conn |> send_resp(404, "Not Found") |> halt()
+            end
+          String.ends_with?(file_name, ".ts") ->
+            if File.exists?(file_path) do
+              conn
+              |> put_resp_header("content-type", "video/mp2t")
+              |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
+              |> send_resp(200, File.read!(file_path))
+              |> halt()
+            else
+              conn |> send_resp(404, "Not Found") |> halt()
+            end
+          true ->
+            conn
         end
       _ ->
         conn
@@ -39,7 +56,6 @@ defmodule Rtp.LiveStream do
         case IO.binread(file, 65536) do
           :eof ->
             File.close(file)
-            :timer.sleep(500)
             stream_growing_file(conn, file_path, offset)
           data when is_binary(data) ->
             File.close(file)
@@ -51,7 +67,6 @@ defmodule Rtp.LiveStream do
             end
         end
       {:error, _} ->
-        :timer.sleep(500)
         stream_growing_file(conn, file_path, offset)
     end
   end

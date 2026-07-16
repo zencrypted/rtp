@@ -4,4 +4,4 @@ config :n2o,
   mq: :rtp_syn
 
 config :rtp,
-  hls_format: :ts
+  hls_format: :hevc

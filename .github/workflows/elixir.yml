@@ -4,11 +4,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libgstreamer1.0-dev \
+          libgstreamer-plugins-base1.0-dev \
+          libgstreamer-plugins-bad1.0-dev \
+          libgstreamer-plugins-good1.0-dev \
+          libjson-glib-dev
     - uses: erlef/setup-beam@v1
       with:
-        otp-version: 24.x
-        elixir-version: 1.13.x
+        otp-version: 29.x
+        elixir-version: 1.20.x
     - name: Dependencies
       run: |
         mix local.rebar --force

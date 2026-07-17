@@ -4,7 +4,9 @@ defmodule Rtp.MixProject do
   def project do
     [
       app: :rtp,
+      description: "ERP/1: RTP GST WebRTC ICE SDP H.264 H.265 MP4 MPEG-2 HLS HEVC",
       version: "0.7.16",
+      package: package(),
       aliases: aliases(),
       deps: deps()
     ]
@@ -12,12 +14,22 @@ defmodule Rtp.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :mnesia, :crypto, :ssl, :inets],
+      extra_applications: [:logger, :mnesia, :crypto, :ssl, :inets ],
       mod: {:rtp_app, []}
     ]
   end
 
-  defp deps do
+  def package do
+    [
+      files: ~w(include config lib src priv mix.exs rebar.config README.md GST.md rtp.pdf),
+      licenses: ["ISC"],
+      maintainers: ["Namdak Tonpa"],
+      name: :rtp,
+      links: %{"GitHub" => "https://github.com/zencrypted/rtp"}
+    ]
+  end
+
+  def deps do
     [
       {:bandit, "1.12.0"},
       {:websock_adapter, "0.5.9"},
@@ -46,4 +58,5 @@ defmodule Rtp.MixProject do
         raise "Compilation of gst.c failed with status #{status}"
     end
   end
+
 end

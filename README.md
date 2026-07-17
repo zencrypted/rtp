@@ -1,5 +1,8 @@
 # WebRTC Group Video Conference HPA Server
 
+[![Actions Status](https://github.com/zencrypted/rtp/workflows/mix/badge.svg)](https://github.com/zencrypted/rtp/actions)
+[![Hex pm](https://img.shields.io/hexpm/v/rtp.svg?style=flat)](https://hex.pm/packages/rtp)
+
 This repository contains the unified, lightweight RTP monorepo designed for high-performance WebRTC
 video conferencing in the SYNRC CHAT environment. It consolidates N2O WebSocket pages,
 room process supervisors, Mnesia persistence, and in-process GStreamer mixer port drivers

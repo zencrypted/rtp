@@ -500,8 +500,8 @@ The login page issues a 3-minute session token and redirects to the conference p
 
 | Standard | Description | System Mapping |
 |---|---|---|
-| H.264 AVC | Active video codec | `x264enc` in `gst.c` (WebRTC + HLS) |
-| H.265 HEVC | High-efficiency video codec | `x265enc` in `gst.c` (HEVC HLS pipeline) |
+| H.264 | Active video codec (AVC) | `x264enc` in `gst.c` (WebRTC + HLS) |
+| H.265 | High-efficiency video codec (HEVC) | `x265enc` in `gst.c` (HEVC HLS pipeline) |
 | H.323 | Packet multimedia systems | `room_coordinator` architecture mirrors H.323 MCU |
 | H.235.8 | SRTP key exchange via secure signaling | DTLS-SRTP negotiated by `webrtcbin` |
 | H.239 | Role management (participant/presenter) | `role` field in `n2o_signaling` state |

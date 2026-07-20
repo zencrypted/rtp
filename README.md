@@ -97,8 +97,8 @@ graph TD
     Broker -->|open_port spawn_executable| GST
     Broker -->|port_command JSON| GST
     GST -->|stdout JSON| Broker
-    Broker -->|syn:lookup → Pid ! msg| N2O
-    N2O -->|push {text, JSON}| JS
+    Broker -->|syn:lookup, Pid bang msg| N2O
+    N2O -->|WebSocket push JSON| JS
     Coord -->|gen_server:call| MnesiaS
     MnesiaS --> Mnesia
     Coord -->|syn:publish / syn:register| Syn

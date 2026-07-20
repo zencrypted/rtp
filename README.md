@@ -525,6 +525,3 @@ The login page issues a 3-minute session token and redirects to the conference p
 * Ericsson Research — First GStreamer WebRTC implementation (OpenWebRTC)
 * 5HT — Author of Zen Crypted RTP
 
-## 11. Dedication
-
-* Mariia Bielikova

@@ -3,164 +3,473 @@
 [![Actions Status](https://github.com/zencrypted/rtp/workflows/mix/badge.svg)](https://github.com/zencrypted/rtp/actions)
 [![Hex pm](https://img.shields.io/hexpm/v/rtp.svg?style=flat)](https://hex.pm/packages/rtp)
 
-This repository contains the unified, lightweight RTP monorepo designed for high-performance WebRTC
-video conferencing in the SYNRC CHAT environment. It consolidates N2O WebSocket pages,
-room process supervisors, Mnesia persistence, and in-process GStreamer mixer port drivers
+This repository contains the unified, lightweight RTP monorepo designed for high-performance
+WebRTC video conferencing. It consolidates N2O WebSocket signaling pages, session authentication,
+room process supervisors, Mnesia persistence, and in-process GStreamer compositor port drivers
 into a single cohesive Erlang/OTP application.
 
 ## 1. Directory Blueprint
 
 ```
 ├── c_src/
-│   └── gst.c                    # GStreamer WebRTC compositor C99 implementation
+│   └── gst.c                    # GStreamer WebRTC MCU compositor — C99, 668 lines
+├── include/
+│   └── session_token.hrl        # session_token record: token, user, room, device, expiry
 ├── config/
-│   ├── config.exs               # Elixir Erlang/OTP Application Environment
-│   ├── sys.config               # Database directory, Eturnal TCP/UDP listeners, and N2O parameters
-│   └── vm.args                  # Cluster node cookie and naming args
+│   ├── config.exs               # Elixir/OTP application environment
+│   ├── sys.config               # Mnesia dir, N2O parameters, port bindings
+│   └── vm.args                  # Cluster node cookie and naming arguments
 ├── priv/
-│   ├── static/                  # Front-end dashboard and client scripts
-│   │   ├── app/                 #
-│   │   │   ├── index.html       # INDEX.HTML Page
-│   │   │   └── login.html       # LOGIN.HTML Page
-│   │   └── rtp.css              # RTP.CSS Styles
-│   └── gst                      # compiled native C99 binary spawned by Erlang port
+│   ├── gst                      # Compiled native C99 binary spawned by Erlang port
+│   └── static/
+│       ├── app/
+│       │   ├── index.htm        # Conference participant page (WebRTC + N2O chat)
+│       │   ├── bcast.htm        # HLS broadcast viewer page (passive observer)
+│       │   └── login.htm        # Session login page
+│       ├── js/
+│       │   ├── rtc.js           # WebRTC signaling client: peer connection, SDP/ICE, telemetry
+│       │   └── cast.js          # HLS broadcast viewer: hls.js player, retro/live seek, telemetry
+│       └── css/
+│           ├── rtp.css          # Conference participant UI styles
+│           ├── rtp-cast.css     # Broadcast viewer UI styles
+│           └── rtp-login.css    # Login page styles
 ├── lib/
-│   └── rtp
-│       ├── live_stream.ex       # HTTP Live Streaming (HLS) Server
-│       ├── n2o_socket.ex        # N2O Bandit WebSocket Proxy
-│       ├── static.ex            # Static Server
-│       └── ws.ex                # WebSocker Server
+│   └── rtp/
+│       ├── live_stream.ex       # HTTP Live Streaming handler — strips ETag, forces no-store
+│       ├── n2o_socket.ex        # N2O Bandit WebSocket proxy
+│       ├── static.ex            # Plug.Static asset server (port 8081)
+│       └── ws.ex                # WebSocket server (port 8001) — routes to n2o_signaling
 ├── src/
-│   ├── index.erl                # N2O Nitro room chat history feed
-│   ├── login.erl                # N2O Nitro user session handler
-│   ├── media_broker_srv.erl     # supervised GStreamer compositor port manager (mp4 to S3 storage)
-│   ├── mnesia_srv.erl           # local database schema setup (disc_copies chat and room tables)
-│   ├── n2o_signaling.erl        # WebRTC SDP/ICE
-│   ├── room_coordinator.erl     # Main Gen Server
-│   ├── routes.erl               # Erlang/OTP Default Routes
-│   ├── rtp_app.erl              # Erlang/OTP Application
-│   ├── rtp_sup.erl              # Erlang/OTP Supervisor starting mnesia_srv and media_broker_srv workers
-│   ├── rtp_syn.erl              # RTP Pub/Sub (Redis replacement)
-│   ├── rtp.app.src              # Deps: [kernel, stdlib, inets, ssl, bandit, websock_adapter, n2o, nitro, kvs, syn, mnesia]
-│   └── session_token.erl
-├── mix.exs                      # Elixir Packages (Dependencies)
-├── gst-nuttx.pdf                # GStreamer MCU port to NuttX
-├── rtp.pdf                      # GStreamer MCU Article in LaTeX
-├── GST.md                       # GStreamer MCU
-└── README.md                    # This file
+│   ├── index.erl                # N2O Nitro page: room chat history, member list, file upload
+│   ├── login.erl                # N2O Nitro page: session token issuance and redirect
+│   ├── media_broker_srv.erl     # gen_server: GStreamer port lifecycle and Port IPC bridge
+│   ├── mnesia_srv.erl           # gen_server: Mnesia schema init, per-room chat tables
+│   ├── n2o_signaling.erl        # WebSock handler: SDP/ICE signaling, peer registration
+│   ├── room_coordinator.erl     # gen_server: room state, participant presence, media delegation
+│   ├── routes.erl               # N2O URL router: /app/index.htm → index, /app/login.htm → login
+│   ├── rtp_app.erl              # OTP Application: listeners, Syn scopes, session table, banner
+│   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): mnesia_srv worker
+│   ├── rtp_syn.erl              # N2O MQ backend: wraps Syn v3 pub/sub as N2O pool registry
+│   ├── rtp.app.src              # Application descriptor and dependency list
+│   └── session_token.erl        # ETS-backed session token: issue, validate, update_device
+├── mix.exs                      # Elixir package manager (Hex dependencies)
+├── rebar.config                 # Rebar3 build configuration
+├── GST.md                       # GStreamer MCU compositor specification
+├── gst-nuttx.pdf                # GStreamer MCU port to NuttX RTOS (article)
+└── rtp.pdf                      # RTP MCU Gateway article (LaTeX)
 ```
 
-## 2. Unified Architecture Topology
+## 2. System Architecture
 
-The simplified architecture integrates all real-time messaging, orchestration, database persistence,
-and TURN capabilities into a single monolithic Erlang node, delegating layout composting and recordings
-directly to local GStreamer port processes.
+The system is organized into three distinct layers: the browser client (SPA), the
+Erlang/OTP control plane, and the C99 GStreamer media plane. All participants of a
+given room are bound to the same Erlang node via Ingress sticky sessions, eliminating
+inter-node cluster traffic and allowing the system to scale horizontally as a set of
+share-nothing pods.
 
 ```mermaid
 graph TD
-    subgraph "Client Browser"
-        ClientJS["Web Client"]
+    subgraph "Browser Client (SPA)"
+        JS["rtc.js / cast.js"]
     end
 
-    subgraph "Kubernetes Cluster (erp-rtp)"
-        Ingress["Nginx Ingress / K8s Service"]
-
-        subgraph "RTP Monolith Pod (Erlang Node)"
-            N2O_Gate["N2O WebSocket"]
-            Room_Coord["Room Coordinator"]
-            Syn_Reg["Syn Process Registry"]
-            Mnesia_DB["Mnesia DB"]
-            Eturnal["TURN Server"]
-            GST_Mixer["GStreamer Port"]
-        end
-    end
-
-    subgraph "Telemetry Namespace"
-        Otel_Col["OpenTelemetry Collector"]
-        OpenSearch["OpenSearch Log Store"]
-        Grafana["Grafana Visualizer"]
+    subgraph "Kubernetes Pod (Erlang Node)"
+        Bandit["Bandit HTTP/WS Server"]
+        N2O["n2o_signaling (WebSock)"]
+        Coord["room_coordinator (gen_server)"]
+        Broker["media_broker_srv (gen_server)"]
+        MnesiaS["mnesia_srv (gen_server)"]
+        Syn["Syn Process Registry"]
+        GST["priv/gst (OS Port, C99)"]
+        Mnesia["Mnesia DB (disc_copies)"]
     end
 
     subgraph "Storage"
-        S3["S3 Object Storage"]
+        HLS["priv/static/rooms/<id>/index.m3u8"]
+        MP4["priv/static/rooms/<id>/recording.mp4"]
     end
 
-    %% Client Traffic
-    ClientJS -->|Signaling WSS - Port 8081| Ingress
-    ClientJS -->|STUN/TURN Traffic - Port 3478| Eturnal
-    ClientJS -->|Dedicated Telemetry - Port 8082| Ingress
-
-    %% RTP Media Streams (WebRTC)
-    ClientJS --->|Upstream RTP - Port 10000-20000| GST_Mixer
-    GST_Mixer --->|Downstream Broadcast - Port 10000-20000| ClientJS
-    ClientJS <-->|Relayed WebRTC SRTP - Port 3478| Eturnal
-
-    %% Internal routing
-    Ingress -->|Signaling WSS - Port 8081| N2O_Gate
-    Ingress -->|Telemetry WSS - Port 8082| Otel_Col
-
-    %% Monolith orchestration
-    N2O_Gate <-->|Local Message Passing| Room_Coord
-    Room_Coord <-->|Registry Lookups| Syn_Reg
-    Room_Coord <-->|Save Chat logs & states| Mnesia_DB
-    Room_Coord -->|Spawn local composite mixer| GST_Mixer
-
-    %% Media output
-    GST_Mixer -->|Mixed MP4 Upload| S3
-
-    %% Observability Paths
-    N2O_Gate -->|OTLP Logs & Metrics| Otel_Col
-    Room_Coord -->|OTLP Logs & Metrics| Otel_Col
-    Eturnal -->|OTLP Metrics| Otel_Col
-    Otel_Col -->|Logs| OpenSearch
-    Otel_Col -->|Metrics| Grafana
+    JS -->|WSS :8001 SDP/ICE JSON| Bandit
+    JS -->|WebRTC SRTP| GST
+    Bandit --> N2O
+    N2O -->|gen_server:call| Coord
+    Coord -->|start_link / call| Broker
+    Broker -->|open_port spawn_executable| GST
+    Broker -->|port_command JSON| GST
+    GST -->|stdout JSON| Broker
+    Broker -->|syn:lookup → Pid ! msg| N2O
+    N2O -->|push {text, JSON}| JS
+    Coord -->|gen_server:call| MnesiaS
+    MnesiaS --> Mnesia
+    Coord -->|syn:publish / syn:register| Syn
+    GST --> HLS
+    GST --> MP4
 ```
 
-## 3. Technical Features
+### 2.1 Conferencing Topology: MCU Model
 
-* **Zero Headless Browsers**:     Recording and compositing grid layouts is done using native GStreamer compositor port
-                                  pipelines instead of Chromium-based egress, reducing resource footprint by over 90%.
-* **Erlang Process Pub/Sub**:     Redis is completely removed. Signaling groups are managed in-memory across Erlang
-                                  cluster nodes using Roberto Ostinelli's **`syn`** registry.
-* **Persistent Mnesia Engine**:   Simplifies external databases (like RocksDB) by using built-in persistent disk tables.
-                                  It writes directly to PVC paths (`/var/lib/rtp/mnesia`) or falls back
-                                  to `./mnesia_data` during local development.
-* **Mutual TLS (mTLS) Security**: Bypasses JWT auth keys. Ingress validates user certificates and forwards DN
-                                  attributes (e.g. `CN`, `role`) as secure headers (`x-ssl-client-s-dn`, `x-ssl-client-san`) to Cowboy.
-* **DSCP Telemetry Priority**:    Main signaling runs on Port `8081`. Metric diagnostics run on a secondary,
-                                  dedicated connection over Port `8082`, designed for Kubernetes QoS tagging (Expedited
-                                  Forwarding) to prevent metrics drops under network congestion.
+Unlike Selective Forwarding Units (SFU), which route $K-1$ independent streams to each
+participant (requiring each browser to decode $K-1$ feeds simultaneously), the system
+enforces a centralized MCU model. The GStreamer compositor decodes all upstream feeds,
+composites them into a single 1920 × 1080 grid, re-encodes the composite, and broadcasts
+a **single stream** to every participant. This ensures O(1) bandwidth and decoding
+complexity at the client, independent of the number of active participants.
 
-## 3. Configuration & Ports
+## 3. Erlang/OTP Module Descriptions
 
-Erlang bindings and listeners are defined inside `config/sys.config`:
+### 3.1 Application Bootstrap — `rtp_app.erl`
 
-* **Port 8081**: Main signaling/web assets connection gateway.
-* **Port 8082**: High-priority telemetry socket ingestion gateway.
-* **Port 3478 (UDP/TCP)**: ProcessOne `eturnal` STUN/TURN traffic listener.
-* **Mnesia Dir**: Default target is `/var/lib/rtp/mnesia` (PVC). Fallback is `./mnesia_data` if unwritable.
+`rtp_app` implements the `application` behaviour. On start it:
 
-## 4. How to Run Locally
+1. Configures N2O: port `8001`, protocols `[nitro_n2o, n2o_heart]`, MQ backend `rtp_syn`.
+2. Calls `kvs:join()` to initialize the KVS schema layer.
+3. Calls `session_token:init_table()` to create the ETS session store.
+4. Registers the `rooms` and `n2o_mq` Syn scopes via `syn:add_node_to_scopes/1`.
+5. Spawns two Bandit listeners: WebSocket on port `8001`, static assets on port `8081`.
+6. Starts `rtp_sup`.
 
-### 4.1 Prerequisites (macOS)
+The startup banner reports hardware capacity heuristics:
+- `MaxRooms = logical_cores × 10`
+- `RoomCapacity = 50` participants per room
+- `MaxParticipants = MaxRooms × RoomCapacity`
 
-Install GStreamer tools and plugins (base, good, bad) using Homebrew:
+### 3.2 Supervisor — `rtp_sup.erl`
 
-```bash
-$ brew install gstreamer
-```
+`one_for_one` strategy with intensity `5` / period `10`. Supervises a single
+permanent worker: `mnesia_srv`. Room coordinators and media brokers are started
+transiently on-demand by `room_coordinator:ensure_started/1`.
 
-### 4.2 Start the Monolith
-
-Due to macOS compiling NIF extensions in non-standard paths, launch the Rebar3 shell using the pre-configured script wrapper:
-
-```bash
-$ iex -S mix
-```
-
-This automatically exports OpenSSL/libyaml configurations, compiles the codebase, and launches the VM:
+### 3.3 Session Authentication — `session_token.erl` / `include/session_token.hrl`
 
 ```erlang
+-record(session_token, {
+    token  :: binary(),            % Unique opaque session token
+    user   :: binary(),            % Username
+    room   :: binary(),            % Room name
+    device :: binary() | undefined, % WebRTC peer_id (populated on WebSocket connect)
+    expiry :: integer()            % Gregorian seconds expiry (issue time + 180 s)
+}).
+```
+
+Token lifecycle:
+- **`issue(User, Room)`** — generates a cryptographic token via `n2o_secret:sid/1`,
+  stores the record in the `session_tokens` ETS table with a 3-minute TTL.
+- **`validate(Token)`** — looks up the ETS table, rejects expired entries and removes them.
+- **`update_device(Token, PeerId)`** — associates the ephemeral WebRTC `peer_id` with
+  the session on first WebSocket connection.
+
+### 3.4 WebSocket Signaling — `n2o_signaling.erl`
+
+Implements the `Elixir.WebSock` behaviour. State record:
+
+```erlang
+-record(state, {
+    user_id  :: binary(),
+    room_id  :: binary(),
+    role     :: binary(),
+    peer_id  :: binary(),   % peer_<unique_integer>
+    room_pid :: pid()
+}).
+```
+
+**`init/1`**: Generates a unique `peer_id`, ensures the `room_coordinator` is started,
+updates the session token device field, registers the process in the `rooms` Syn scope
+(`syn:register(rooms, PeerId, self())`), and sends `send_init_msg` to itself.
+
+**`handle_in/2`**: Decodes JSON text frames and dispatches:
+
+| Client Message | Handler Action |
+|---|---|
+| `{"type":"ready"}` | Calls `room_coordinator:originate_video/3` — triggers GStreamer peer join |
+| `{"type":"get_room_info"}` | Retrieves `started_at` from broker; pushes `room_info` |
+| `{"type":"get_peers"}` | Retrieves peer list from broker; pushes `peer_list` |
+| `{"type":"ping"}` | No-op keep-alive |
+| `{"sdp":{"type":"answer","sdp":...}}` | Forwards SDP answer to `room_coordinator` |
+| `{"candidate":...}` | Forwards ICE candidate to `room_coordinator` |
+
+**`handle_info/2`**: Routes Erlang messages to WebSocket pushes:
+
+| Erlang Message | WebSocket Push |
+|---|---|
+| `send_init_msg` | `{"type":"init","peer_id":"..."}` |
+| `{send_room_info, StartedAt}` | `{"type":"room_info","started_at":...,"hls_format":...}` |
+| `{sdp_offer, Sdp}` | `{"sdp":{"type":"offer","sdp":"..."}}` |
+| `{ice_candidate, Candidate}` | `{"candidate":{...}}` |
+| `{peer_joined, PeerId}` | `{"type":"peer_joined","peer_id":"..."}` |
+| `{peer_left, PeerId}` | `{"type":"peer_left","peer_id":"..."}` |
+
+**`terminate/2`**: Calls `room_coordinator:peer_left/2` and unregisters from Syn.
+
+### 3.5 Room Coordinator — `room_coordinator.erl`
+
+A per-room `gen_server` started on-demand by `ensure_started/1`. It is registered
+in the `rooms` Syn scope under the binary room ID. State record:
+
+```erlang
+-record(state, {
+    room_id      :: binary(),
+    participants = []         :: list(),     % Active member maps: #{id, pid}
+    publishers   = []         :: list(),     % Active media publishers
+    media_broker = undefined  :: pid() | undefined
+}).
+```
+
+Handles:
+
+| Call / Cast | Behaviour |
+|---|---|
+| `{join, Participant}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
+| `{leave, ParticipantId}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
+| `{chat, Sender, Message}` | Writes to Mnesia via `mnesia_srv`; publishes via `n2o:send/2` |
+| `{originate_video, PeerId, ClientPid}` | Lazily starts `media_broker_srv`; calls `peer_joined/4` |
+| `{sdp_answer, PeerId, Sdp}` | Delegates to `media_broker_srv:sdp_answer/4` |
+| `{ice_candidate, PeerId, Candidate}` | Delegates to `media_broker_srv:ice_candidate/4` |
+| `{peer_left, PeerId}` | Delegates to `media_broker_srv:peer_left/3` |
+| `terminate_room` | Calls `media_broker_srv:terminate_room/2`; stops broker |
+| `get_started_at` | Queries broker for recording start timestamp |
+| `get_peers` | Queries broker for active peer list |
+
+On `terminate/2`, unregisters from Syn and stops the media broker if active.
+
+### 3.6 Media Broker — `media_broker_srv.erl`
+
+A per-room-group `gen_server` managing the GStreamer port process lifecycle. State:
+
+```erlang
+-record(state, {
+    ports         = #{},  % RoomId → Port
+    room_peers    = #{},  % RoomId → [PeerId]
+    peer_rooms    = #{},  % PeerId → RoomId
+    room_started_at = #{}, % RoomId → millisecond timestamp
+    monitors      = #{}   % MonitorRef → {RoomId, PeerId}
+}).
+```
+
+**Port spawning** (`peer_joined` call): On the first peer join for a room, spawns
+the `priv/gst` binary as an Erlang port with:
+```erlang
+open_port({spawn_executable, Binary}, [
+    binary, stream, {args, [OutDir, FormatStr]},
+    use_stdio, stderr_to_stdout, exit_status,
+    {line, 16384},
+    {env, [{"GST_GL_WINDOW", "none"},
+           {"GST_PLUGIN_FEATURE_FILTER", "opengl:0,applemedia:0"}]}
+])
+```
+
+**Port IPC** (`send_to_port/2`): Encodes Erlang maps as JSON via `jsone:encode/1`
+and writes to the port with a trailing newline.
+
+**Stdout parsing** (`handle_info({Port, {data, {eol, Line}}}, ...)`): Decodes JSON
+lines received from the GStreamer process and dispatches:
+
+| GStreamer Output | Erlang Action |
+|---|---|
+| `{"type":"sdp_offer","peer_id":"...","sdp":"..."}` | Sends `{sdp_offer, Sdp}` to the peer's signaling process via `syn:lookup` |
+| `{"type":"ice_candidate","peer_id":"...","candidate":{...}}` | Sends `{ice_candidate, Candidate}` to the peer's signaling process |
+| `{"type":"recording_started"}` | Records real start time; begins polling for `index.m3u8` manifest |
+
+**Manifest polling** (`poll_manifest`): After `recording_started`, polls
+`priv/static/rooms/<id>/index.m3u8` every 100 ms (up to 1000 attempts / 100 seconds).
+When the manifest appears on disk, broadcasts `room_info` to all room peers via Syn.
+
+**Process monitoring**: On `peer_joined`, monitors the client WebSocket process PID.
+If the process dies (browser tab closed, network drop), the `'DOWN'` message triggers
+`handle_peer_departure`, cleanly notifying GStreamer and updating room state.
+
+**Last-peer cleanup**: When `handle_peer_departure` reduces the room peer list to
+empty, the port is closed (`catch port_close(Port)`), automatically terminating
+the GStreamer process and freeing media resources.
+
+### 3.7 Persistence — `mnesia_srv.erl`
+
+A named `gen_server` (singleton) initializing Mnesia on startup. Schema:
+
+| Table | Type | Key | Fields |
+|---|---|---|---|
+| `chat_message` | `ordered_set`, `disc_copies` | `{room_id, timestamp}` | `room_id`, `sender`, `text` |
+| `room_state` | `set`, `disc_copies` | `room_id` | `state_data` |
+| `chat_room_<RoomId>` | `ordered_set`, `disc_copies` | `{room_id, timestamp}` | per-room chat partition |
+
+Per-room tables (`create_room_table/1`) are created lazily when a room coordinator
+starts, enabling namespace-level partitioning of chat history across rooms.
+
+### 3.8 Pub/Sub Backend — `rtp_syn.erl`
+
+Implements the N2O MQ interface backed by Syn v3, replacing Redis:
+
+```erlang
+send(Pool, Message) ->
+    syn:publish(n2o_mq, term_to_binary(Pool), Message).
+
+reg(Pool, _Value) ->
+    syn:join(n2o_mq, term_to_binary(Pool), self()).
+```
+
+This provides in-memory, distributed-optional pub/sub for N2O page events
+(chat messages, member presence) without any external message broker dependency.
+
+### 3.9 URL Router — `routes.erl`
+
+N2O router implementing `init/2` and `finish/2`. Maps HTTP path prefixes to
+Erlang page modules:
+
+| Path prefix | Module |
+|---|---|
+| `/` or `` | `login` |
+| `/ws/index...` or `/app/index...` | `index` |
+| `/ws/login...` or `/app/login...` | `login` |
+
+### 3.10 Login Page — `login.erl`
+
+N2O Nitro page. The `login` event:
+1. Reads `user` and `pass` (room name) form fields via `nitro:q/1`.
+2. Issues a session token via `session_token:issue/2`.
+3. Stores user and token in the N2O session.
+4. Writes `localStorage.setItem('rtp_joined', 'true')` via `nitro:wire/1`.
+5. Redirects to `/app/index.htm?room=<room>&user=<user>&token=<token>`.
+
+### 3.11 Index Page — `index.erl`
+
+N2O Nitro page serving the conference room interface. The `init` event:
+1. Validates the session token from URL params or session store.
+2. Registers the process on the room topic (`n2o:reg({topic, Room})`).
+3. Renders the logout button, room heading, chat send button, upload widget, and
+   terminate button.
+4. Calls `room_coordinator:ensure_started/1` and `room_coordinator:join/2`.
+5. Loads chat history from Mnesia and renders message elements.
+6. Renders the active participants list via injected JavaScript.
+7. Broadcasts `{member_joined, User}` to the room topic.
+
+## 4. Frontend Modules
+
+### 4.1 Conference Client — `priv/static/js/rtc.js`
+
+Manages the full WebRTC participant lifecycle within `index.htm`:
+
+- **Session persistence**: Room, user, and token are read from URL params with
+  `localStorage` fallback, enabling F5 resume without re-authentication.
+- **Signaling**: Connects to `ws://<host>:8001/ws/signaling?room=...&user=...&token=...`.
+  Handles `init`, `room_info`, `sdp` (offer), and `candidate` messages.
+- **`startConference()`**: Acquires `getUserMedia` (video 640×360/30fps + audio,
+  with audio-only fallback), creates `RTCPeerConnection`, adds tracks, and sends
+  `{"type":"ready"}` to trigger GStreamer peer join.
+- **`leaveConference()`**: Closes WebSocket, stops tracks, resets PeerConnection,
+  clears `localStorage.rtp_joined`.
+- **Telemetry**: Polls `RTCPeerConnection.getStats()` every 2 seconds and displays
+  RTT (ms) and packet loss (%) from `remote-inbound-rtp` and `candidate-pair` reports.
+- **Autoplay handling**: On `NotAllowedError` from `video.play()`, injects a
+  click-to-play overlay button.
+
+### 4.2 Broadcast Viewer — `priv/static/js/cast.js`
+
+Manages HLS passive viewer playback within `bcast.htm`:
+
+- **HLS player**: Uses `hls.js` with `liveSyncDurationCount=2`, `backBufferLength=30`.
+  Loads `playlist-location=/rooms/<room>/index.m3u8`.
+- **Live/Retro mode**: Detects scrubbing via `retroSlider` and toggles between LIVE
+  (pulsing red dot) and RETRO (grey dot) states. Automatic catch-up logic jumps to
+  `liveSyncPosition` when drift exceeds 10 seconds.
+- **Error recovery**: Network errors reload the playlist source after 1 second;
+  media errors call `recoverMediaError()`; fatal errors destroy and reinitialize
+  the player after 2 seconds.
+- **Stream end (VOD mode)**: On `video.ended`, disables catch-up, changes badge
+  to "ЗАВЕРШЕНО", and treats the stream as a playable archive.
+- **Telemetry sidebar**: WebSocket connection to the signaling server for receiving
+  `peer_joined` / `peer_left` events and displaying active peer count and list.
+- **Stall detection**: 5-second `waiting` event timeout triggers full player
+  reinitialization.
+
+## 5. Media Pipeline Architecture
+
+### 5.1 Static Pipeline Structure
+
+The GStreamer pipeline (`c_src/gst.c`) maintains a permanent backbone activated at
+startup: a black `videotestsrc` feeds `compositor.sink_0` and a silent `audiotestsrc`
+feeds `audiomixer.sink_0`. This prevents scheduler stalls when no peers are connected.
+
+Three output formats are supported, selected by the `hls_format` application environment:
+
+| Format | Video Encoder | Audio Encoder | Sink |
+|---|---|---|---|
+| `ts` (default) | x264enc → h264parse → rtph264pay / hlssink2 | opusenc (WebRTC) + avenc_aac (HLS) | `hlssink2` (2s segments, `playlist-length=10`) |
+| `fmp4` / `mp4` | x264enc → h264parse → rtph264pay / mp4mux | opusenc (WebRTC) + avenc_aac (mux) | `mp4mux fragment-duration=1000 streamable=true` |
+| `hevc` / `h265` | x264enc (WebRTC) + x265enc (HLS) | opusenc (WebRTC) + avenc_aac (HLS) | `hlssink2` with H.265 video |
+
+### 5.2 HLS Caching Pathology and the No-Store Intervention
+
+Standard static file servers use `ETag` / `Last-Modified` headers for cache
+revalidation. In an HLS context where `index.m3u8` is updated every 2 seconds
+but may retain identical byte sizes across successive updates, servers return
+`304 Not Modified`, starving `hls.js` of new segment announcements and causing
+hard playback stalls.
+
+`Rtp.LiveStream` (Elixir) intercepts all `.m3u8` requests before `Plug.Static`
+evaluation, stripping ETag generation and injecting:
+
+```
+Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+```
+
+This guarantees deterministic delivery of the live edge state on every poll.
+
+### 5.3 PTS/DTS Integrity: Direct-to-Sink Tee Branching
+
+Earlier iterations routed H.264 through `rtph264pay → rtph264depay` before feeding
+`hlssink2`. The RTP payload/depayload cycle introduces microscopic PTS/DTS
+discontinuities that `mpegtsmux` cannot tolerate, causing MSE decoders to freeze.
+
+The corrected architecture tees the stream *after* `h264parse` (and *before*
+`rtph264pay`), sending a pristine bitstream directly to `hlssink2` while a separate
+branch handles RTP payloading for WebRTC participants. Audio is teed from the raw
+`audiomixer` output (`raw_atee`) before the Opus encoder, preserving timestamps for
+both paths independently.
+
+### 5.4 Disk-I/O Isolation: 30-Second Leaky Queues
+
+HLS segment writes (approx. 1 MB per 2-second `.ts` segment) introduce I/O stalls
+that, under standard 1.2-second queue limits, cause upstream frame drops. Storage
+branches use `queue max-size-time=30000000000 leaky=2` (30 s). Frames accumulate
+in RAM during filesystem stalls, mathematically guaranteeing HLS continuity
+independent of disk scheduler latency.
+
+## 6. Configuration and Ports
+
+| Port | Protocol | Purpose |
+|---|---|---|
+| `8001` | WebSocket (Bandit) | N2O signaling + WebRTC SDP/ICE signaling |
+| `8081` | HTTP (Bandit) | Static file server (`Plug.Static`) for `priv/static/` |
+| `3478` | UDP/TCP (eturnal) | STUN/TURN relay for NAT traversal |
+| `5349` | UDP/TCP (eturnal) | TURNS (STUN/TURN over TLS) |
+
+Mnesia directory defaults to `/var/lib/rtp/mnesia` (Kubernetes PVC) with
+fallback to `./mnesia_data` for local development.
+
+## 7. How to Run Locally
+
+### 7.1 Prerequisites (macOS)
+
+```bash
+brew install gstreamer libnice libnice-gstreamer json-glib erlang
+```
+
+### 7.2 Compile the GStreamer Binary
+
+```bash
+cc -O3 c_src/gst.c -o priv/gst \
+  $(pkg-config --cflags --libs \
+    gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
+```
+
+### 7.3 Start the Monolith
+
+```bash
+iex -S mix
+```
+
+Expected banner:
+
+```
 ╔════════════════════════════════════════════════════════╗
 ║  ERP/1: RTP Server / Signaling & Telemetry             ║
 ║  WS  : ws://localhost:8001/ws/app/<page>.htm           ║
@@ -170,118 +479,42 @@ This automatically exports OpenSSL/libyaml configurations, compiles the codebase
   Max Rooms  : 100 (heuristic based on cores)
   Capacity   : 5000 max participants (50 per room)
   RTP Codecs : Opus (Audio), VP8, VP9, H.264 (Video)
-(1)>
 ```
 
-Once booted, access the video interface at `http://localhost:8081/app/login.htm` as shown in banner.
+### 7.4 Access the Interface
 
-## 5. Media Pipeline Architecture and Delivery Nuances
+Navigate to `http://localhost:8081/app/login.htm`. Enter a username and room name.
+The login page issues a 3-minute session token and redirects to the conference page.
 
-The system employs an advanced, multi-modal GStreamer pipeline capable of
-synthesizing grid-composited media from real-time WebRTC ingest and demultiplexing
-it to heterogeneous endpoints. The architecture natively supports three distinct
-fragmentation and streaming topologies tailored to varied latency and browser compatibility constraints.
+## 8. ITU-T Standards Alignment
 
-### 5.1 Fragmented Streaming Topologies
+| Standard | Description | System Mapping |
+|---|---|---|
+| H.264 AVC | Active video codec | `x264enc` in `gst.c` (WebRTC + HLS) |
+| H.265 HEVC | High-efficiency video codec | `x265enc` in `gst.c` (HEVC HLS pipeline) |
+| H.323 | Packet multimedia systems | `room_coordinator` architecture mirrors H.323 MCU |
+| H.235.8 | SRTP key exchange via secure signaling | DTLS-SRTP negotiated by `webrtcbin` |
+| H.239 | Role management (participant/presenter) | `role` field in `n2o_signaling` state |
+| H.245 | Control protocol for multimedia | SDP in WebRTC (RFC 8866 / RFC 3264) |
+| G.711 | PCM 64 kbit/s | WebRTC baseline audio |
+| G.722 | 7 kHz wideband | WebRTC HD voice |
+| T.124 | Generic conference control | `room_coordinator` gen_server |
+| X.601 | Multi-peer communications framework | N2O WebSocket + Syn room scope |
+| X.603 | Relayed multicast protocol | Erlang Port IPC (stdin/stdout relay) |
 
-#### 1. Fragmented MP4 (fMP4)
+## 9. Articles
 
-- **Mechanism:** The pipeline generates a single, continuously growing `recording.mp4` file encoded via `x264enc`.
-- **Packaging:** Handled by `mp4mux` with `fragment-duration=1000` and `streamable=true`.
-                 This avoids building a massive Moov atom at the end of the file and interleaves
-                 Moof (Movie Fragment) and Mdat (Media Data) atoms sequentially.
-- **Delivery Characteristics:** Suitable for environments requiring unified file storage while
-                 still supporting progressive HTTP download. However, the lack of definitive
-                 manifest metadata natively prevents clients from dynamically adapting to
-                 shifting live edge bounds, making it less optimal for robust Live streaming.
+* M. Sokhatsky. *RTP: A Minimal MCU Gateway of ANSI C99 with GStreamer for High-Density
+  Video Conferencing on Erlang/OTP Control Plane in Alpine Linux under Kubernetes
+  (Part of Zen Crypted X.422.2 Buddha Protocol)*. Axiosis. 2026. ([rtp.pdf](rtp.pdf))
+* M. Sokhatsky. *NuStream: A Lightweight, Predictable Deterministic Real-Time Media
+  Pipeline with GStreamer-like API for NuttX RTOS*. Axiosis. 2026. ([gst-nuttx.pdf](gst-nuttx.pdf))
 
-#### 2. MPEG-TS (H.264 / AAC)
+## 10. Credits
 
-- **Mechanism:** The pipeline leverages `hlssink2` to generate discrete 2-second Transport Stream (`.ts`) segments accompanied by a dynamically updating `index.m3u8` playlist.
-- **Packaging:** Encoded using the ubiquitous H.264 (`x264enc`) and AAC codecs, guaranteeing maximal compatibility across legacy and modern web environments.
-- **Delivery Characteristics:** Operates as the default robust fallback. By utilizing `target-duration=2` and `playlist-length=10`, the system maintains a 20-second rolling buffer. This generous buffer window absorbs network transmission jitter and encoder processing variance, ensuring contiguous client-side playback.
+* Ericsson Research — First GStreamer WebRTC implementation (OpenWebRTC)
+* 5HT — Author of Zen Crypted RTP
 
-#### 3. HEVC (H.265 / AAC)
+## 11. Dedication
 
-- **Mechanism:** An experimental high-efficiency tier utilizing `x265enc` exclusively for the HLS storage/delivery path.
-- **Packaging:** Due to limited browser support for WebRTC over H.265, the pipeline executes a *dual-encoding* strategy. The composited raw video is teed (`raw_vtee`); one branch proceeds to an H.264 encoder to sustain real-time WebRTC participant feeds, while the second branch proceeds to an H.265 encoder targeting the `hlssink2` destination.
-- **Delivery Characteristics:** Provides substantially improved visual fidelity at equivalent bitrates or bandwidth conservation at equivalent quality. Delivery targets modern ecosystems (e.g., Apple Safari/iOS) capable of natively decoding H.265 TS segments.
-
-### 5.2 Nuances of Live HLS Delivery and Caching Pathologies
-
-Delivering micro-segmented live HLS playlists (`index.m3u8`) over a standard web server introduces critical HTTP caching pathologies that severely degrade playback continuity.
-
-- **The ETag Stalling Phenomenon:** Modern static web servers (such as Elixir's `Plug.Static`) utilize `ETag` headers or `Last-Modified` timestamps to negotiate cache revalidation (HTTP 304 Not Modified). In a live HLS context where `target-duration` is short (e.g., 2 seconds) and the `playlist-length` is fixed (e.g., 10 segments), the `index.m3u8` file frequently maintains identical byte sizes across successive updates. If an update occurs within the 1-second truncation threshold of standard filesystem `mtime` resolutions, the web server heuristically concludes the file has not mutated.
-- **Client Starvation:** When `hls.js` attempts to poll the playlist to discover the next sequential `.ts` segment, the web server replies with `304 Not Modified`. The player is deceived into believing no new segments exist, rapidly exhausting its internal buffer and resulting in a hard stall.
-- **The Absolute No-Store Intervention:** To mathematically guarantee playlist freshness, the routing architecture explicitly intercepts `.m3u8` requests prior to static file evaluation (via `Rtp.LiveStream`). The handler deliberately strips all `ETag` generation capabilities, forcibly embeds aggressive cache-busting directives (`Cache-Control: no-store, no-cache, must-revalidate, max-age=0`), and serves the raw file binaries. This circumvents the HTTP revalidation cycle entirely, ensuring deterministic delivery of the live edge state.
-
-### 5.3 GStreamer Queue Topology and PTS Timestamp Preservation
-
-The demultiplexing of raw compositor output to simultaneous WebRTC (RTP) and HLS (MPEG-TS) endpoints introduces critical timing and buffering challenges. The pipeline must be specifically architected to prevent frame dropping and Presentation Time Stamp (PTS) corruption.
-
-- **Destructive RTP Payload Cycles:** Earlier architectural iterations routed encoded H.264 video through an RTP payloading step (`rtph264pay`) before teeing the stream to the WebRTC egress and the HLS storage sink. Because the HLS sink requires a raw bitstream rather than RTP packets, the stream had to be depayloaded (`rtph264depay`). However, the RTP payload/depayload cycle is highly destructive to exact PTS and DTS (Decode Time Stamp) accuracy. `mpegtsmux` (which `hlssink2` utilizes internally) is notoriously intolerant of PTS/DTS discontinuities. These microscopic timestamp jumps resulted in generated `.ts` segments that would cause browser MSE (MediaSource Extension) implementations to silently panic and permanently freeze playback after the first segment.
-- **Direct-to-Sink Tee Branching:** To mathematically guarantee PTS synchronization, the pipeline is architected using precise post-parse/pre-payload Tees (`h264_tee` and `raw_atee`). The video stream is bifurcated immediately *after* `h264parse`, sending a pristine, unbroken bitstream directly to `hlssink2` while a secondary branch handles the RTP payloading for WebRTC participants. The audio stream similarly bifurcates the raw `audiomixer` output directly into the AAC encoder, bypassing the WebRTC Opus encoder entirely.
-- **Eliminating Disk-IO Throttling Jitter:** The secondary branching introduces asynchronous dependency. If the `hlssink2` disk writer stalls for even milliseconds (e.g., when flushing a 1MB `.ts` chunk to the filesystem), upstream queue exhaustion can cause violent frame drops if configured with strict limits (e.g., standard 1.2-second bounds). To prevent this, the architecture employs massively expanded leaky queues (`queue max-size-time=30000000000 leaky=2`) providing astronomical 30-second memory buffers. If the disk writer blocks, frames pool gracefully in RAM rather than being dropped, mathematically guaranteeing the HLS feed remains as perfectly smooth as the WebRTC broadcast.
-
-## ITU-T H-Series Recommendations
-
-Requirements for passing interview for Zen Crypted RTP developer position.
-
-Video Codecs:
-
-* H.261 Origin of DCT video coding
-* H.263 Low bit-rate video (legacy WebRTC)
-* H.264 AVC — active (x264enc in gst.c)
-* H.265 HEVC — active (hevc pipeline in gst.c)
-* H.266 VVC — future
-
-Audio Codecs:
-
-* G.711 PCM 64 kbit/s — WebRTC baseline
-* G.718 Wideband embedded variable bit-rate
-* G.719 Full-band conversational audio (closest ITU to Opus)
-* G.722 7 kHz wideband — WebRTC HD voice
-* G.728 16 kbit/s LD-CELP
-
-Packet Multimedia & MCU:
-
-* H.320 Narrow-band visual telephone (MCU reference)
-* H.323 Packet multimedia systems — mirrors room_coordinator
-* H.324 Low bit-rate multimedia terminal
-* H.332 H.323 for loosely coupled conferences
-* H.350 Directory services for multimedia conferencing
-
-Security:
-
-* H.235 H.323 security framework
-* H.235.7 MIKEY/SRTP key management
-* H.235.8 SRTP key exchange via secure signaling (= DTLS)
-
-Control & Negotiation:
-
-* H.239 Role management (participant/presenter — matches role in n2o_signaling)
-* H.241 Extended video procedures / codec capability
-* H.245 Control protocol for multimedia (= SDP in WebRTC)
-
-QoS & Timing:
-
-* H.361 End-to-end QoS priority signaling
-* J.161 Codec requirements for bidirectional IP audio/video
-* P.931 Delay, synchronization and frame rate measurement
-
-Data Conferencing (N2O chat):
-
-* T.120 Data protocols for multimedia conferencing
-* T.123 Protocol stacks for conferencing (≈ WebSocket transport)
-* T.124 Generic conference control (≈ room_coordinator)
-
-## Articles
-
-* M. Sokhatsky. RTP: A Minimal MCU Gateway of ANSI C99 with GStreamer for High-Density Video Conferencing on Erlang/OTP Control Plane in Alpine Linux under Kubernetes (Part of Zen Crypted X.422.2 Buddha Protocol). Axiosis. 2026.
-* M. Sokhatsky. NuStream: A Lightweight, Predictable Deterministic Real-Time Media Pipeline with GStreamer-like API for NuttX RTOS. Axiosis. 2026.
-
-## Credits
-
-* Ericsson Research (First GStreamer WebRTC implementation)
-* 5HT (Author of Zen Crypted RTP)
-
+* Mariia Bielikova

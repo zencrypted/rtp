@@ -4,8 +4,8 @@ defmodule Rtp.MixProject do
   def project do
     [
       app: :rtp,
-      description: "ERP/1: RTP GST WebRTC ICE SDP H.264 H.265 MP4 MPEG-2 HLS HEVC",
-      version: "0.7.16",
+      description: "ERP/1: GST RTP RTC ICE SDP H.264 AVC H.265 HEVC MP4 MPEG-2 HLS",
+      version: "0.7.21",
       package: package(),
       aliases: aliases(),
       deps: deps()

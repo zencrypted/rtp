@@ -146,6 +146,9 @@ static void setup_peer(const gchar *peer_id) {
         return;
     }
 
+    // Set a modest latency to absorb local jitter (0ms can cause severe frame drops)
+    g_object_set(webrtc, "latency", 50, NULL);
+
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
     peer->webrtc = webrtc;
@@ -171,9 +174,10 @@ static void setup_peer(const gchar *peer_id) {
     peer->v_queue = v_queue;
     peer->a_queue = a_queue;
 
-    // Set queues as leaky to prevent deadlocking the tee when a client lags or leaves
-    g_object_set(v_queue, "leaky", 2, "max-size-buffers", 60, NULL);
-    g_object_set(a_queue, "leaky", 2, "max-size-buffers", 60, NULL);
+    // Set queues as leaky to prevent deadlocking the tee when a client lags or leaves.
+    // Use max-size-time (1 second) instead of buffers, as RTP packets vary in frequency.
+    g_object_set(v_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
+    g_object_set(a_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
 
     gst_bin_add_many(GST_BIN(state.pipeline), webrtc, v_queue, a_queue, NULL);
 

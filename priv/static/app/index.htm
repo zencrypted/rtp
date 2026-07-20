@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VKZ Ukrainian Court - Video Conference</title>
+    <title>ВКЗ: Відеоконференцзв'язок (MCU GStreamer)</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link rel="stylesheet" href="/rtp.css" />
 </head>
 <body>
 
     <header>
         <div class="logo-section">
-            <h1>УАК ВЗ</h1>
+            <h1>ВКЗ</h1>
             <span id="heading"></span>
         </div>
         <div style="display: flex; align-items: center; gap: 1.5rem;">
@@ -27,9 +26,7 @@
                 <!-- MCU Mixed Feed Area -->
                 <div class="video-card">
                     <!-- MCU Mixed Feed Area (WebRTC) -->
-                    <video id="remoteVideo" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
-                    <!-- Stream Feed (HLS/MP4) -->
-                    <video id="hlsVideo" autoplay muted controls playsinline style="width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
+                    <video id="remoteVideo" autoplay playsinline style="width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
                     <div class="participant-overlay">
                         <span class="participant-status-dot"></span>
                         <span id="streamLabel">⬛ Очікування трансляції...</span>
@@ -173,7 +170,6 @@
         // WebRTC Signaling elements
         const remoteVideo = document.getElementById('remoteVideo');
         const localVideo  = document.getElementById('localVideo');
-        const hlsVideo    = document.getElementById('hlsVideo');
         const btnJoin      = document.getElementById('btnJoin');
         const btnMuteVideo = document.getElementById('btnMuteVideo');
         const btnMuteAudio = document.getElementById('btnMuteAudio');
@@ -215,16 +211,7 @@
                     const now = Date.now();
                     const deltaMs = now - startedAt;
                     console.log(`Room started at: ${startedAt}. Delta from now: ${deltaMs}ms`);
-                    window.roomStartedAt = startedAt;
-                    window.roomDeltaMs = deltaMs;
-                    window.hlsFormat = msg.hls_format || 'fmp4';
-                    
                     document.getElementById('streamLabel').style.display = 'none';
-                    
-                    // Always start the player when room_info is received
-                    if (!window.hlsPlayer) {
-                        setTimeout(initHlsPlayer, 100);
-                    }
                 } else if (msg.sdp) {
                     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     if (msg.sdp.type === 'offer') {
@@ -252,74 +239,6 @@
             }
         });
 
-        function initHlsPlayer(retryCount = 0) {
-            const seekTime = Math.max(0, (window.roomDeltaMs || 0) / 1000 - 2);
-            console.log(`Initializing player, seeking to live edge: ${seekTime} seconds`);
-
-            if (window.hlsFormat === 'fmp4' || window.hlsFormat === 'mp4') {
-                const mp4Url = `/rooms/${encodeURIComponent(roomName)}/recording.mp4`;
-                hlsVideo.src = mp4Url;
-                
-                hlsVideo.onloadedmetadata = function() {
-                    if (seekTime > 0) {
-                        hlsVideo.currentTime = seekTime;
-                    }
-                    hlsVideo.play().catch(e => console.warn('fMP4 Autoplay prevented:', e));
-                };
-
-                // Add error handler for early fetches
-                hlsVideo.onerror = function() {
-                    if (retryCount < 10) {
-                        console.log('Stream not ready, retrying in 1s...');
-                        setTimeout(() => initHlsPlayer(retryCount + 1), 1000);
-                    }
-                };
-                return;
-            }
-
-            const playlistUrl = `/rooms/${encodeURIComponent(roomName)}/index.m3u8`;
-            if (Hls.isSupported()) {
-                window.hlsPlayer = new Hls({
-                    liveSyncDurationCount: 3,
-                    liveMaxLatencyDurationCount: 10,
-                    backBufferLength: 90
-                });
-                window.hlsPlayer.loadSource(playlistUrl);
-                window.hlsPlayer.attachMedia(hlsVideo);
-                window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-                    // Hls.js handles the live edge natively for live playlists
-                    hlsVideo.play().catch(e => console.warn('HLS Autoplay prevented:', e));
-                });
-                window.hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
-                    if (data.fatal) {
-                        switch (data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.warn('HLS Network error, retrying in 1s...', data);
-                                setTimeout(() => {
-                                    if (window.hlsPlayer) {
-                                        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.details === 'manifestLoadError') {
-                                            const bustUrl = playlistUrl + '?t=' + Date.now();
-                                            window.hlsPlayer.loadSource(bustUrl);
-                                        } else {
-                                            window.hlsPlayer.startLoad();
-                                        }
-                                    }
-                                }, 1000);
-                                break;
-                            default:
-                                window.hlsPlayer.destroy();
-                                break;
-                        }
-                    }
-                });
-            } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                hlsVideo.src = playlistUrl;
-                hlsVideo.addEventListener('loadedmetadata', function() {
-                    // Safari handles live edge natively
-                    hlsVideo.play().catch(e => console.warn('Safari Autoplay prevented:', e));
-                });
-            }
-        }
 
         async function startConference() {
             try {
@@ -356,7 +275,7 @@
                 btnMuteAudio.classList.add('active');
 
                 pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    iceServers: [] // LAN-only: no STUN/TURN servers configured for minimum latency
                 });
 
                 pc.ontrack = (event) => {
@@ -371,14 +290,6 @@
                         if (remoteVideo.srcObject !== stream) remoteVideo.srcObject = stream;
                     }
                     
-                    // Switch UI from HLS to WebRTC
-                    hlsVideo.style.display = 'none';
-                    if (window.hlsPlayer && typeof window.hlsPlayer.destroy === 'function') {
-                        window.hlsPlayer.destroy();
-                        window.hlsPlayer = null;
-                    } else {
-                        hlsVideo.src = '';
-                    }
                     remoteVideo.style.display = 'block';
                     remoteVideo.play().catch(e => {
                         console.error("WebRTC play error:", e);

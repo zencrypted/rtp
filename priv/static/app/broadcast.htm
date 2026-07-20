@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ВКЗ: Трансляція (HLS)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link rel="stylesheet" href="/rtp.css" />
+</head>
+<body>
+
+    <header>
+        <div class="logo-section">
+            <h1>УАК ВЗ</h1>
+            <span id="heading"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1.5rem;">
+            <div class="court-badge" id="currentUserSpan">Connecting...</div>
+            <span id="logout"></span>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <div class="video-container-wrapper">
+            <div class="video-grid" id="videoGrid">
+                <!-- MCU Mixed Feed Area -->
+                <div class="video-card">
+                    <!-- Stream Feed (HLS/MP4) -->
+                    <video id="hlsVideo" autoplay muted controls playsinline style="width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
+                    <div class="participant-overlay">
+                        <span class="participant-status-dot"></span>
+                        <span id="streamLabel">⬛ Очікування трансляції...</span>
+                    </div>
+                </div>
+            </div>
+
+
+    </div>
+
+    <!-- N2O / NITRO Scripts -->
+    <script src="https://ws.n2o.dev/priv/utf8.js"></script>
+    <script src="https://ws.n2o.dev/priv/bert.js"></script>
+    <script src="https://ws.n2o.dev/priv/heart.js"></script>
+    <script src="https://ws.n2o.dev/priv/n2o.js"></script>
+    <script>host = location.hostname; port = 8001; debug = true;</script>
+    <script src="https://ws.n2o.dev/priv/ftp.js"></script>
+    <script src="https://nitro.n2o.dev/priv/js/nitro.js"></script>
+    <script>protos = [$bert]; N2O_start();</script>
+
+    <!-- HLS viewer script -->
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomName = urlParams.get('room') || 'lobby';
+        const userName = urlParams.get('user') || 'guest';
+
+        document.getElementById('currentUserSpan').textContent = userName + ' (Viewer)';
+
+        const hlsVideo = document.getElementById('hlsVideo');
+        
+        function initHlsPlayer(retryCount = 0) {
+            console.log(`Initializing HLS player for room: ${roomName}`);
+            const playlistUrl = `/rooms/${encodeURIComponent(roomName)}/index.m3u8`;
+            
+            if (Hls.isSupported()) {
+                window.hlsPlayer = new Hls({
+                    liveSyncDurationCount: 3,
+                    liveMaxLatencyDurationCount: 10,
+                    backBufferLength: 90
+                });
+                window.hlsPlayer.loadSource(playlistUrl);
+                window.hlsPlayer.attachMedia(hlsVideo);
+                window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+                    document.getElementById('streamLabel').style.display = 'none';
+                    hlsVideo.play().catch(e => console.warn('HLS Autoplay prevented:', e));
+                });
+                window.hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.warn('HLS Network error, retrying in 1s...', data);
+                                setTimeout(() => {
+                                    if (window.hlsPlayer) {
+                                        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.details === 'manifestLoadError') {
+                                            const bustUrl = playlistUrl + '?t=' + Date.now();
+                                            window.hlsPlayer.loadSource(bustUrl);
+                                        } else {
+                                            window.hlsPlayer.startLoad();
+                                        }
+                                    }
+                                }, 1000);
+                                break;
+                            default:
+                                window.hlsPlayer.destroy();
+                                break;
+                        }
+                    }
+                });
+            } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                hlsVideo.src = playlistUrl;
+                hlsVideo.addEventListener('loadedmetadata', function() {
+                    document.getElementById('streamLabel').style.display = 'none';
+                    hlsVideo.play().catch(e => console.warn('Safari Autoplay prevented:', e));
+                });
+            }
+        }
+
+        // Start playback attempt immediately
+        initHlsPlayer();
+    </script>
+</body>
+</html>

@@ -46,6 +46,13 @@ handle_in({Msg, Opts} = Frame, State) ->
                         {pending, _StartedAt} ->
                             ok
                     end;
+                <<"get_room_info">> ->
+                    StartedAt = gen_server:call(State#state.room_pid, {get_started_at, State#state.room_id}),
+                    if StartedAt =/= undefined -> self() ! {send_room_info, StartedAt}; true -> ok end;
+                <<"get_peers">> ->
+                    Peers = gen_server:call(State#state.room_pid, get_peers),
+                    Payload = jsone:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers}),
+                    self() ! {send_payload, Payload};
                 _ ->
                     case Data of
                         #{<<"sdp">> := #{<<"type">> := <<"answer">>, <<"sdp">> := Sdp}} ->
@@ -93,6 +100,17 @@ handle_info({ice_candidate, Candidate}, State) ->
     Payload = jsone:encode(#{
         <<"candidate">> => Candidate
     }),
+    {push, {text, Payload}, State};
+
+handle_info({peer_joined, PeerId}, State) ->
+    Payload = jsone:encode(#{<<"type">> => <<"peer_joined">>, <<"peer_id">> => PeerId}),
+    {push, {text, Payload}, State};
+
+handle_info({peer_left, PeerId}, State) ->
+    Payload = jsone:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
+    {push, {text, Payload}, State};
+
+handle_info({send_payload, Payload}, State) ->
     {push, {text, Payload}, State};
 
 handle_info(_Info, State) ->

@@ -49,6 +49,14 @@ init([]) ->
     process_flag(trap_exit, true),
     {ok, #state{}}.
 
+handle_call({get_started_at, RoomId}, _From, State) ->
+    StartedAt = maps:get(RoomId, State#state.room_started_at, undefined),
+    {reply, StartedAt, State};
+
+handle_call({get_peers, RoomId}, _From, State) ->
+    Peers = maps:get(RoomId, State#state.room_peers, []),
+    {reply, Peers, State};
+
 handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
     {Port, NewPorts, StartedAt, NewStartedAt} = case maps:find(RoomId, State#state.ports) of
         {ok, P} ->
@@ -94,6 +102,13 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
     Peers = maps:get(RoomId, State#state.room_peers, []),
     NewRoomPeers = maps:put(RoomId, [PeerId | Peers], State#state.room_peers),
     NewPeerRooms = maps:put(PeerId, RoomId, State#state.peer_rooms),
+    
+    lists:foreach(fun(PidPeer) ->
+        case syn:lookup(rooms, PidPeer) of
+            {Pid, _} -> Pid ! {peer_joined, PeerId};
+            undefined -> ok
+        end
+    end, Peers),
     
     PlaylistPath = recording_path(RoomId),
     Status = case filelib:is_regular(PlaylistPath) of
@@ -290,6 +305,14 @@ handle_peer_departure(RoomId, PeerId, State) ->
             Peers = maps:get(RoomId, State#state.room_peers, []),
             NewPeers = lists:delete(PeerId, Peers),
             NewPeerRooms = maps:remove(PeerId, State#state.peer_rooms),
+            
+            lists:foreach(fun(PidPeer) ->
+                case syn:lookup(rooms, PidPeer) of
+                    {Pid, _} -> Pid ! {peer_left, PeerId};
+                    undefined -> ok
+                end
+            end, NewPeers),
+            
             case NewPeers of
                 [] ->
                     error_logger:info_msg("Last peer left room ~s. Closing GStreamer port.~n", [RoomId]),

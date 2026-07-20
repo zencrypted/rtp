@@ -3,107 +3,795 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ВКЗ: Трансляція (HLS)</title>
+    <title>ВКЗ: Прямий Ефір</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <link rel="stylesheet" href="/rtp.css" />
+    <style>
+        /* Immersive Broadcast Reset */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .broadcast-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+
+        #hlsVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Don't crop the video */
+            background: #000;
+        }
+
+        /* Auto-hiding Chrome Layer */
+        .chrome-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 10;
+        }
+        .broadcast-container.idle .chrome-overlay {
+            opacity: 0;
+        }
+
+        /* Header Info in Chrome */
+        .broadcast-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            box-sizing: border-box;
+            color: #fff;
+            pointer-events: auto;
+        }
+
+        .brand-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            margin: 0;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .room-subtitle {
+            font-size: 1rem;
+            font-weight: 300;
+            opacity: 0.8;
+        }
+
+        /* LIVE Badge */
+        .live-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 6px 12px;
+            border-radius: 6px;
+            backdrop-filter: blur(4px);
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: opacity 0.3s;
+        }
+        .live-badge.offline {
+            opacity: 0;
+        }
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ef4444;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #ef4444;
+            animation: pulse-red 2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        /* Unmute Overlay */
+        .unmute-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+        }
+        .unmute-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .unmute-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            font-family: inherit;
+            pointer-events: none; /* Let click pass to overlay */
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        /* Slider Controls */
+        .controls-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-sizing: border-box;
+            pointer-events: auto;
+        }
+
+        .control-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.85;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .control-btn:hover {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+        .control-btn svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .vol-slider {
+            width: 80px;
+            -webkit-appearance: none;
+            height: 4px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            margin-right: 15px;
+        }
+        .vol-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        .retro-slider {
+            flex-grow: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+        .retro-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ef4444;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+
+        /* Status Slate (Loading/Error) */
+        .status-slate {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            z-index: 15;
+            color: #fff;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .status-slate.active {
+            opacity: 1;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border-top-color: #3b82f6;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Telemetry Sidebar */
+        .telemetry-sidebar {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 320px;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(15px);
+            border-left: 1px solid rgba(255,255,255,0.1);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: 25;
+            padding: 2rem;
+            box-sizing: border-box;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            pointer-events: auto;
+        }
+        .telemetry-sidebar.open {
+            transform: translateX(0);
+        }
+        
+        .sidebar-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 1.5rem;
+            cursor: pointer;
+            opacity: 0.7;
+        }
+        .sidebar-close:hover { opacity: 1; }
+
+        .telemetry-stat {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .telemetry-stat h3 {
+            margin: 0 0 5px 0;
+            font-size: 0.8rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .telemetry-stat .val {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .peer-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .peer-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+        }
+
+    </style>
 </head>
 <body>
 
-    <header>
-        <div class="logo-section">
-            <h1>УАК ВЗ</h1>
-            <span id="heading"></span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 1.5rem;">
-            <div class="court-badge" id="currentUserSpan">Connecting...</div>
-            <span id="logout"></span>
-        </div>
-    </header>
+    <div class="broadcast-container" id="container">
+        <!-- Main Video -->
+        <video id="hlsVideo" autoplay muted playsinline></video>
 
-    <div class="main-layout">
-        <div class="video-container-wrapper">
-            <div class="video-grid" id="videoGrid">
-                <!-- MCU Mixed Feed Area -->
-                <div class="video-card">
-                    <!-- Stream Feed (HLS/MP4) -->
-                    <video id="hlsVideo" autoplay muted controls playsinline style="width:100%; height:100%; object-fit:cover; border-radius: 12px;"></video>
-                    <div class="participant-overlay">
-                        <span class="participant-status-dot"></span>
-                        <span id="streamLabel">⬛ Очікування трансляції...</span>
+        <!-- Unmute CTA -->
+        <div class="unmute-overlay" id="unmuteOverlay">
+            <div class="unmute-btn">
+                <span>🔇</span> Натисніть для увімкнення звуку
+            </div>
+        </div>
+
+        <!-- Status Slate -->
+        <div class="status-slate" id="statusSlate">
+            <div class="spinner"></div>
+            <div id="statusText" style="font-weight:300;">Очікування трансляції...</div>
+        </div>
+
+        <!-- Auto-Hiding Chrome -->
+        <div class="chrome-overlay">
+            <div class="broadcast-header">
+                <div>
+                    <h1 class="brand-title">ВКЗ</h1>
+                    <div class="room-subtitle" id="roomDisplay">Завантаження...</div>
+                </div>
+                <div style="display:flex; align-items:center; gap: 15px;">
+                    <div class="live-badge offline" id="liveBadge" style="cursor:pointer;" title="Повернутися до прямого ефіру">
+                        <div class="live-dot" id="liveDot"></div>
+                        <span id="liveText">LIVE</span>
                     </div>
+                    <button id="infoToggleBtn" class="control-btn" title="Інформація">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    </button>
                 </div>
             </div>
+            <div class="controls-bar">
+                <button id="playPauseBtn" class="control-btn" title="Play/Pause">
+                    <!-- Pause Icon (Default as it autoplays) -->
+                    <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    <!-- Play Icon -->
+                    <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                
+                <button id="muteBtn" class="control-btn" title="Mute/Unmute">
+                    <!-- Volume Icon -->
+                    <svg id="iconVol" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    <!-- Muted Icon (Default due to autoplay rules) -->
+                    <svg id="iconMuted" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                </button>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" class="vol-slider">
 
+                <input type="range" class="retro-slider" id="retroSlider" min="0" max="100" value="100" step="0.1">
 
+                <button id="fullscreenBtn" class="control-btn" title="Fullscreen">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Telemetry Sidebar -->
+        <div class="telemetry-sidebar" id="sidebar">
+            <button class="sidebar-close" id="sidebarClose">&times;</button>
+            <h2 style="margin-top:0; font-size:1.4rem;">Інформація</h2>
+            
+            <div class="telemetry-stat">
+                <h3>Тривалість трансляції</h3>
+                <div class="val" id="telemetryDuration">00:00:00</div>
+            </div>
+            
+            <div class="telemetry-stat" id="telemetryEndedStat" style="display:none;">
+                <h3>Пройшло після завершення</h3>
+                <div class="val" id="telemetryEndedTime">00:00:00</div>
+            </div>
+            
+            <div class="telemetry-stat">
+                <h3>Учасники (<span id="peerCount">0</span>)</h3>
+                <ul class="peer-list" id="peerList"></ul>
+            </div>
+        </div>
     </div>
-
-    <!-- N2O / NITRO Scripts -->
-    <script src="https://ws.n2o.dev/priv/utf8.js"></script>
-    <script src="https://ws.n2o.dev/priv/bert.js"></script>
-    <script src="https://ws.n2o.dev/priv/heart.js"></script>
-    <script src="https://ws.n2o.dev/priv/n2o.js"></script>
-    <script>host = location.hostname; port = 8001; debug = true;</script>
-    <script src="https://ws.n2o.dev/priv/ftp.js"></script>
-    <script src="https://nitro.n2o.dev/priv/js/nitro.js"></script>
-    <script>protos = [$bert]; N2O_start();</script>
 
     <!-- HLS viewer script -->
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const roomName = urlParams.get('room') || 'lobby';
-        const userName = urlParams.get('user') || 'guest';
-
-        document.getElementById('currentUserSpan').textContent = userName + ' (Viewer)';
+        document.getElementById('roomDisplay').textContent = 'Кімната: ' + roomName;
 
         const hlsVideo = document.getElementById('hlsVideo');
+        const container = document.getElementById('container');
+        const unmuteOverlay = document.getElementById('unmuteOverlay');
+        const statusSlate = document.getElementById('statusSlate');
+        const statusText = document.getElementById('statusText');
+        const liveBadge = document.getElementById('liveBadge');
+        const liveDot = document.getElementById('liveDot');
+        const retroSlider = document.getElementById('retroSlider');
         
-        function initHlsPlayer(retryCount = 0) {
+        // Control Buttons
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const iconPlay = document.getElementById('iconPlay');
+        const iconPause = document.getElementById('iconPause');
+        const muteBtn = document.getElementById('muteBtn');
+        const iconVol = document.getElementById('iconVol');
+        const iconMuted = document.getElementById('iconMuted');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+        const infoToggleBtn = document.getElementById('infoToggleBtn');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarClose = document.getElementById('sidebarClose');
+
+        infoToggleBtn.addEventListener('click', () => {
+            sidebar.classList.add('open');
+        });
+        sidebarClose.addEventListener('click', () => {
+            sidebar.classList.remove('open');
+        });
+
+        let isLiveMode = true;
+        let isUserSeeking = false;
+        let isStreamEnded = false;
+
+        let roomStartedAt = null;
+        let roomEndedAt = null;
+        let peerSet = new Set();
+        let telemetryInterval = null;
+
+        function updateTelemetry() {
+            if (!roomStartedAt) return;
+            const now = Date.now();
+            
+            if (isStreamEnded) {
+                if (!roomEndedAt) roomEndedAt = now;
+                document.getElementById('telemetryEndedStat').style.display = 'block';
+                const endedDiff = now - roomEndedAt;
+                document.getElementById('telemetryEndedTime').textContent = formatTime(endedDiff);
+            } else {
+                const liveDiff = now - roomStartedAt;
+                document.getElementById('telemetryDuration').textContent = formatTime(liveDiff);
+            }
+        }
+
+        function formatTime(ms) {
+            const totalSec = Math.floor(ms / 1000);
+            const h = Math.floor(totalSec / 3600).toString().padStart(2, '0');
+            const m = Math.floor((totalSec % 3600) / 60).toString().padStart(2, '0');
+            const s = (totalSec % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function renderPeers() {
+            document.getElementById('peerCount').textContent = peerSet.size;
+            const list = document.getElementById('peerList');
+            list.innerHTML = '';
+            peerSet.forEach(peer => {
+                const li = document.createElement('li');
+                // Remove the generated ID part just to show name if available, else show full ID
+                const nameMatch = peer.match(/^peer_(\d+)/) ? "Глядач " + peer.split('_')[1] : peer;
+                li.textContent = nameMatch;
+                list.appendChild(li);
+            });
+        }
+
+        // Connect Telemetry WebSocket
+        const signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=broadcast');
+        
+        signalingWs.onopen = () => {
+            console.log('Telemetry connected.');
+        };
+
+        signalingWs.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'init') {
+                    // connected, fetch room info and peers
+                    signalingWs.send(JSON.stringify({ type: 'get_room_info' }));
+                    signalingWs.send(JSON.stringify({ type: 'get_peers' }));
+                } else if (data.type === 'room_info') {
+                    roomStartedAt = data.started_at;
+                    if (telemetryInterval) clearInterval(telemetryInterval);
+                    telemetryInterval = setInterval(updateTelemetry, 1000);
+                } else if (data.type === 'peer_list') {
+                    data.peers.forEach(p => peerSet.add(p));
+                    renderPeers();
+                } else if (data.type === 'peer_joined') {
+                    peerSet.add(data.peer_id);
+                    renderPeers();
+                } else if (data.type === 'peer_left') {
+                    peerSet.delete(data.peer_id);
+                    renderPeers();
+                }
+            } catch(e) {}
+        };
+
+        // Chrome Auto-hide logic
+        let idleTimeout;
+        function resetIdle() {
+            container.classList.remove('idle');
+            clearTimeout(idleTimeout);
+            idleTimeout = setTimeout(() => {
+                container.classList.add('idle');
+            }, 3000);
+        }
+        window.addEventListener('mousemove', resetIdle);
+        window.addEventListener('click', resetIdle);
+        window.addEventListener('touchstart', resetIdle);
+        resetIdle();
+
+        // Unmute logic (Overlay)
+        unmuteOverlay.addEventListener('click', () => {
+            hlsVideo.muted = false;
+            unmuteOverlay.classList.add('hidden');
+            iconMuted.style.display = 'none';
+            iconVol.style.display = 'block';
+            volumeSlider.value = hlsVideo.volume;
+        });
+
+        // Player Controls Logic
+        playPauseBtn.addEventListener('click', () => {
+            if (hlsVideo.paused) {
+                hlsVideo.play();
+            } else {
+                hlsVideo.pause();
+            }
+        });
+
+        hlsVideo.addEventListener('play', () => {
+            iconPlay.style.display = 'none';
+            iconPause.style.display = 'block';
+        });
+
+        hlsVideo.addEventListener('pause', () => {
+            iconPause.style.display = 'none';
+            iconPlay.style.display = 'block';
+        });
+
+        muteBtn.addEventListener('click', () => {
+            hlsVideo.muted = !hlsVideo.muted;
+            if (hlsVideo.muted) {
+                iconMuted.style.display = 'block';
+                iconVol.style.display = 'none';
+                volumeSlider.value = 0;
+            } else {
+                iconMuted.style.display = 'none';
+                iconVol.style.display = 'block';
+                volumeSlider.value = hlsVideo.volume || 1;
+            }
+            unmuteOverlay.classList.add('hidden');
+        });
+
+        volumeSlider.addEventListener('input', (e) => {
+            hlsVideo.volume = e.target.value;
+            if (e.target.value > 0) {
+                hlsVideo.muted = false;
+                iconMuted.style.display = 'none';
+                iconVol.style.display = 'block';
+                unmuteOverlay.classList.add('hidden');
+            } else {
+                hlsVideo.muted = true;
+                iconMuted.style.display = 'block';
+                iconVol.style.display = 'none';
+            }
+        });
+
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Retro Slider Logic
+        liveBadge.addEventListener('click', () => {
+            if (isStreamEnded) return;
+            if (!isLiveMode && window.hlsPlayer && window.hlsPlayer.liveSyncPosition) {
+                hlsVideo.currentTime = window.hlsPlayer.liveSyncPosition;
+                setLiveMode(true);
+            }
+        });
+
+        retroSlider.addEventListener('input', () => {
+            isUserSeeking = true;
+            resetIdle();
+        });
+
+        retroSlider.addEventListener('change', () => {
+            isUserSeeking = false;
+            if (hlsVideo.seekable.length > 0) {
+                const start = hlsVideo.seekable.start(0);
+                const end = hlsVideo.seekable.end(0);
+                const targetTime = start + (retroSlider.value / 100) * (end - start);
+                hlsVideo.currentTime = targetTime;
+                
+                // If they scrubbed away from the edge, disable live mode
+                if (end - targetTime > 3) {
+                    setLiveMode(false);
+                } else {
+                    setLiveMode(true);
+                }
+            }
+        });
+
+        hlsVideo.addEventListener('timeupdate', () => {
+            if (!isUserSeeking && hlsVideo.seekable.length > 0) {
+                const start = hlsVideo.seekable.start(0);
+                const end = hlsVideo.seekable.end(0);
+                const current = hlsVideo.currentTime;
+                
+                if (end > start) {
+                    const percent = ((current - start) / (end - start)) * 100;
+                    retroSlider.value = Math.max(0, Math.min(100, percent));
+                }
+            }
+        });
+
+        function setLiveMode(isLive) {
+            if (isStreamEnded) return;
+            isLiveMode = isLive;
+            if (isLive) {
+                liveDot.style.background = '#ef4444';
+                liveDot.style.animation = 'pulse-red 2s infinite';
+                liveBadge.style.opacity = '1';
+                liveBadge.style.background = 'rgba(0, 0, 0, 0.5)';
+                document.getElementById('liveText').textContent = 'LIVE';
+            } else {
+                liveDot.style.background = '#888';
+                liveDot.style.animation = 'none';
+                liveBadge.style.opacity = '0.7';
+                liveBadge.style.background = 'rgba(0, 0, 0, 0.8)';
+                document.getElementById('liveText').textContent = 'РЕТРО';
+            }
+        }
+
+        // (Old unmute logic removed)
+
+        function setStatus(text, showSpinner = true) {
+            if (text) {
+                statusText.textContent = text;
+                statusSlate.classList.add('active');
+                if (!showSpinner) statusSlate.querySelector('.spinner').style.display = 'none';
+                else statusSlate.querySelector('.spinner').style.display = 'block';
+                liveBadge.classList.add('offline');
+            } else {
+                statusSlate.classList.remove('active');
+                liveBadge.classList.remove('offline');
+            }
+        }
+
+        let catchUpInterval = null;
+
+        function initHlsPlayer() {
             console.log(`Initializing HLS player for room: ${roomName}`);
             const playlistUrl = `/rooms/${encodeURIComponent(roomName)}/index.m3u8`;
-            
+            setStatus('Підключення до ефіру...');
+
             if (Hls.isSupported()) {
+                if (window.hlsPlayer) {
+                    window.hlsPlayer.destroy();
+                }
+                
+                // Aggressive live settings
+                // Aggressive live settings (removed maxLatency to fix jumping in retro)
                 window.hlsPlayer = new Hls({
-                    liveSyncDurationCount: 3,
-                    liveMaxLatencyDurationCount: 10,
-                    backBufferLength: 90
+                    liveSyncDurationCount: 2,
+                    backBufferLength: 30
                 });
-                window.hlsPlayer.loadSource(playlistUrl);
+
+                // Bust cache on initial load
+                window.hlsPlayer.loadSource(playlistUrl + '?t=' + Date.now());
                 window.hlsPlayer.attachMedia(hlsVideo);
+
                 window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-                    document.getElementById('streamLabel').style.display = 'none';
-                    hlsVideo.play().catch(e => console.warn('HLS Autoplay prevented:', e));
+                    setStatus(null); // Clear loading
+                    hlsVideo.play().catch(e => {
+                        console.warn('HLS Autoplay prevented:', e);
+                        unmuteOverlay.classList.remove('hidden');
+                    });
                 });
+
                 window.hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
                     if (data.fatal) {
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.warn('HLS Network error, retrying in 1s...', data);
+                                setStatus('Втрачено з\'єднання. Відновлення...');
                                 setTimeout(() => {
                                     if (window.hlsPlayer) {
-                                        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.details === 'manifestLoadError') {
-                                            const bustUrl = playlistUrl + '?t=' + Date.now();
-                                            window.hlsPlayer.loadSource(bustUrl);
-                                        } else {
-                                            window.hlsPlayer.startLoad();
-                                        }
+                                        window.hlsPlayer.loadSource(playlistUrl + '?t=' + Date.now());
                                     }
                                 }, 1000);
                                 break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.warn('HLS Media error, recovering...', data);
+                                window.hlsPlayer.recoverMediaError();
+                                break;
                             default:
+                                console.error('Fatal HLS error, destroying and restarting...', data);
+                                setStatus('Критична помилка. Перезапуск...');
                                 window.hlsPlayer.destroy();
+                                setTimeout(() => initHlsPlayer(), 2000);
                                 break;
                         }
                     }
                 });
+
+                // Robust Manual Catch-Up Logic
+                if (catchUpInterval) clearInterval(catchUpInterval);
+                catchUpInterval = setInterval(() => {
+                    if (!window.hlsPlayer || hlsVideo.paused) return;
+                    
+                    const liveEdge = window.hlsPlayer.liveSyncPosition;
+                    const currentPos = hlsVideo.currentTime;
+                    
+                    if (isLiveMode && liveEdge && currentPos > 0) {
+                        const drift = liveEdge - currentPos;
+                        
+                        // If we are more than 10 seconds behind the live edge and user is not seeking
+                        if (drift > 10 && !isUserSeeking) {
+                            console.warn(`[Catch-up] Video is lagging by ${drift.toFixed(2)}s. Forcing jump to live edge.`);
+                            hlsVideo.currentTime = liveEdge;
+                        }
+                    }
+                }, 5000); // Check every 5 seconds
+
             } else if (hlsVideo.canPlayType('application/vnd.apple.mpegurl')) {
                 hlsVideo.src = playlistUrl;
                 hlsVideo.addEventListener('loadedmetadata', function() {
-                    document.getElementById('streamLabel').style.display = 'none';
-                    hlsVideo.play().catch(e => console.warn('Safari Autoplay prevented:', e));
+                    setStatus(null);
+                    hlsVideo.play().catch(e => {
+                        unmuteOverlay.classList.remove('hidden');
+                    });
                 });
             }
         }
+
+        // Handle Stream End (turns into Archive/VOD mode)
+        hlsVideo.addEventListener('ended', () => {
+            console.log('Stream has reached the end of the recording.');
+            isStreamEnded = true;
+            isLiveMode = false;
+            
+            if (catchUpInterval) clearInterval(catchUpInterval);
+            if (stalledTimeout) clearTimeout(stalledTimeout);
+            
+            liveDot.style.background = '#888';
+            liveDot.style.animation = 'none';
+            liveBadge.style.opacity = '0.9';
+            liveBadge.style.background = 'rgba(0, 0, 0, 0.8)';
+            liveBadge.style.cursor = 'default';
+            document.getElementById('liveText').textContent = 'ЗАВЕРШЕНО';
+            
+            setStatus(null); // Clear loading slate
+        });
+
+        let stalledTimeout = null;
+        hlsVideo.addEventListener('waiting', () => {
+            if (isStreamEnded) return;
+            setStatus('Буферизація...');
+            stalledTimeout = setTimeout(() => {
+                console.warn('Video stuck buffering for 5s. Re-initializing...');
+                initHlsPlayer();
+            }, 5000);
+        });
+        hlsVideo.addEventListener('playing', () => {
+            setStatus(null);
+            if (stalledTimeout) clearTimeout(stalledTimeout);
+        });
 
         // Start playback attempt immediately
         initHlsPlayer();

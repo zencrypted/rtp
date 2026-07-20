@@ -178,6 +178,7 @@
         let pc          = null;
         let localStream = null;
         let peerId      = null;
+        let pingInterval= null;
         // Persisted join state: true if user was joined before F5, false if they explicitly disconnected
         let autoJoin    = localStorage.getItem('rtp_joined') === 'true';
 
@@ -192,10 +193,17 @@
                 } else {
                     console.log('Signaling connected — standing by (Disconnect was pressed)');
                 }
+                
+                pingInterval = setInterval(() => {
+                    if (signalingWs && signalingWs.readyState === WebSocket.OPEN) {
+                        signalingWs.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 5000);
             };
 
             signalingWs.onclose = () => {
                 console.log('WebRTC Signaling disconnected');
+                if (pingInterval) clearInterval(pingInterval);
                 resetWebRTC();
             };
 
@@ -275,7 +283,7 @@
                 btnMuteAudio.classList.add('active');
 
                 pc = new RTCPeerConnection({
-                    iceServers: [] // LAN-only: no STUN/TURN servers configured for minimum latency
+                   // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] // Fallback STUN
                 });
 
                 pc.ontrack = (event) => {

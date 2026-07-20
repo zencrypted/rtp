@@ -140,6 +140,22 @@ handle_call({peer_left, PeerId}, _From, State) ->
     end,
     {reply, ok, State};
 
+handle_call(get_started_at, _From, State) ->
+    case State#state.media_broker of
+        undefined -> {reply, undefined, State};
+        BrokerPid -> 
+            StartedAt = gen_server:call(BrokerPid, {get_started_at, State#state.room_id}),
+            {reply, StartedAt, State}
+    end;
+
+handle_call(get_peers, _From, State) ->
+    case State#state.media_broker of
+        undefined -> {reply, [], State};
+        BrokerPid -> 
+            Peers = gen_server:call(BrokerPid, {get_peers, State#state.room_id}),
+            {reply, Peers, State}
+    end;
+
 handle_call(terminate_room, _From, State) ->
     case State#state.media_broker of
         undefined ->

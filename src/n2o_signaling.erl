@@ -47,8 +47,10 @@ handle_in({Msg, Opts} = Frame, State) ->
                             ok
                     end;
                 <<"get_room_info">> ->
-                    StartedAt = gen_server:call(State#state.room_pid, {get_started_at, State#state.room_id}),
+                    StartedAt = gen_server:call(State#state.room_pid, get_started_at),
                     if StartedAt =/= undefined -> self() ! {send_room_info, StartedAt}; true -> ok end;
+                <<"ping">> ->
+                    ok;
                 <<"get_peers">> ->
                     Peers = gen_server:call(State#state.room_pid, get_peers),
                     Payload = jsone:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers}),

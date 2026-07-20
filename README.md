@@ -69,39 +69,49 @@ share-nothing pods.
 
 ```mermaid
 graph TD
-    subgraph "Browser Client (SPA)"
-        JS["rtc.js / cast.js"]
+    subgraph Clients["Browser Clients — N peers"]
+        JS["rtc.js — Camera and Mic"]
+        Cast["cast.js — HLS Viewer"]
     end
 
-    subgraph "Kubernetes Pod (Erlang Node)"
-        Bandit["Bandit HTTP/WS Server"]
-        N2O["n2o_signaling (WebSock)"]
-        Coord["room_coordinator (gen_server)"]
-        Broker["media_broker_srv (gen_server)"]
-        MnesiaS["mnesia_srv (gen_server)"]
-        Syn["Syn Process Registry"]
-        GST["priv/gst (OS Port, C99)"]
-        Mnesia["Mnesia DB (disc_copies)"]
+    subgraph Pod["Erlang/OTP Pod"]
+        WS["n2o_signaling — Bandit :8001"]
+        Coord["room_coordinator — gen_server"]
+        Broker["media_broker_srv — gen_server"]
+        GST["GStreamer MCU — priv/gst C99"]
+        DB["mnesia_srv — Mnesia DB"]
+        Syn["Syn Registry"]
     end
 
-    subgraph "Storage"
-        HLS["priv/static/rooms/<id>/index.m3u8"]
-        MP4["priv/static/rooms/<id>/recording.mp4"]
+    TURN["eturnal TURN — :3478"]
+
+    subgraph Store["Recording Storage"]
+        HLS["index.m3u8 — HLS segments"]
+        MP4["recording.mp4 — fMP4"]
     end
 
-    JS -->|WSS :8001 SDP/ICE JSON| Bandit
-    JS -->|WebRTC SRTP| GST
-    Bandit --> N2O
-    N2O -->|gen_server:call| Coord
-    Coord -->|start_link / call| Broker
-    Broker -->|open_port spawn_executable| GST
-    Broker -->|port_command JSON| GST
-    GST -->|stdout JSON| Broker
-    Broker -->|syn:lookup, Pid bang msg| N2O
-    N2O -->|WebSocket push JSON| JS
-    Coord -->|gen_server:call| MnesiaS
-    MnesiaS --> Mnesia
-    Coord -->|syn:publish / syn:register| Syn
+    %% ── Signaling (thin) ──────────────────────────────────
+    JS  -->|"WSS :8001 SDP/ICE"| WS
+    WS  --> Coord --> Broker
+    Broker -->|"Port IPC stdin JSON"| GST
+    GST -->|"stdout JSON — SDP offers/ICE"| Broker
+    Broker -->|"process message via Syn"| WS
+    WS  -->|"WebSocket push"| JS
+    Coord --> DB
+    Coord --> Syn
+
+    %% ── 1. RTP upstream — camera to MCU (thick) ──────────
+    JS  ==>|"1. RTP upstream — camera SRTP"| GST
+
+    %% ── 2. RTP downstream — MCU composite (thick) ────────
+    GST ==>|"2. RTP MCU composite SRTP"| JS
+    GST ==>|"2. HLS broadcast"| Cast
+
+    %% ── 3. TURN relay — optional (dashed) ────────────────
+    JS  -. "3. STUN/TURN — optional" .-> TURN
+    TURN -. "relay SRTP" .-> GST
+
+    %% ── Recording ─────────────────────────────────────────
     GST --> HLS
     GST --> MP4
 ```

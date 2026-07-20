@@ -83,35 +83,35 @@ graph TD
         Syn["Syn Registry"]
     end
 
-    TURN["eturnal TURN — :3478"]
+    TURN["eturnal TURN — UDP/TCP :3478"]
 
     subgraph Store["Recording Storage"]
         HLS["index.m3u8 — HLS segments"]
         MP4["recording.mp4 — fMP4"]
     end
 
-    %% ── Signaling (thin) ──────────────────────────────────
-    JS  -->|"WSS :8001 SDP/ICE"| WS
+    %% ── Signaling (thin) ─────────────────────────────────
+    JS  -->|"TCP :8001 WSS — SDP/ICE"| WS
     WS  --> Coord --> Broker
-    Broker -->|"Port IPC stdin JSON"| GST
-    GST -->|"stdout JSON — SDP offers/ICE"| Broker
-    Broker -->|"process message via Syn"| WS
-    WS  -->|"WebSocket push"| JS
+    Broker -->|"UNIX pipe stdin — JSON"| GST
+    GST -->|"UNIX pipe stdout — SDP/ICE JSON"| Broker
+    Broker -->|"Erlang msg via Syn"| WS
+    WS  -->|"TCP :8001 WSS push"| JS
     Coord --> DB
     Coord --> Syn
 
-    %% ── 1. RTP upstream — camera to MCU (thick) ──────────
-    JS  ==>|"1. RTP upstream — camera SRTP"| GST
+    %% ── 1. RTP upstream — camera to MCU (thick) ─────────
+    JS  ==>|"1. UDP dynamic — DTLS-SRTP upstream camera"| GST
 
-    %% ── 2. RTP downstream — MCU composite (thick) ────────
-    GST ==>|"2. RTP MCU composite SRTP"| JS
-    GST ==>|"2. HLS broadcast"| Cast
+    %% ── 2. RTP downstream — MCU composite (thick) ───────
+    GST ==>|"2. UDP dynamic — DTLS-SRTP MCU composite"| JS
+    GST ==>|"2. HTTP TCP :8081 — HLS segments"| Cast
 
     %% ── 3. TURN relay — optional (dashed) ────────────────
-    JS  -. "3. STUN/TURN — optional" .-> TURN
-    TURN -. "relay SRTP" .-> GST
+    JS  -. "3. UDP/TCP :3478 — STUN/TURN optional" .-> TURN
+    TURN -. "UDP dynamic — relay DTLS-SRTP" .-> GST
 
-    %% ── Recording ─────────────────────────────────────────
+    %% ── Recording — local disk ────────────────────────────
     GST --> HLS
     GST --> MP4
 ```

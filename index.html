@@ -101,7 +101,7 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 ├── c_src/
 │   └── gst.c               GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── session_token.hrl   session_token record: token, user, room, device, expiry
+│   └── rtp_token.hrl   rtp_token record: token, user, room, device, expiry
 ├── priv/
 │   ├── gst                 Compiled native C99 binary spawned by Erlang port
 │   └── static/
@@ -129,7 +129,7 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
     ├── rtp_app.erl           OTP Application: listeners, Syn scopes, session table
     ├── rtp_sup.erl           OTP Supervisor one_for_one: rtp_store worker
     ├── rtp_syn.erl           N2O MQ backend: Syn v3 pub/sub as N2O pool registry
-    └── session_token.erl     ETS-backed session token: issue, validate, update_device
+    └── rtp_token.erl     ETS-backed session token: issue, validate, update_device
     </code></figure>
   </section>
 
@@ -141,9 +141,9 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
     (WS:8001, HTTP:8081), and starts <code>rtp_sup</code>. Startup banner reports
     <code>MaxRooms = cores × 10</code>, <code>RoomCapacity = 50</code>.</p>
 
-    <p><b>session_token.erl</b> — ETS-backed session tokens with 3-minute TTL.</p>
+    <p><b>rtp_token.erl</b> — ETS-backed session tokens with 3-minute TTL.</p>
     <figure><code>
--record(session_token, {
+-record(rtp_token, {
     token  :: binary(),             % Unique opaque session token
     user   :: binary(),             % Username
     room   :: binary(),             % Room name

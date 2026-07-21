@@ -34,8 +34,7 @@ Sticky Sessions and disabling Erlang cluster distribution,
 the system scales horizontally without inter-node cluster link storms. Real-time video grid
 compositing (2x2 layout in 1080p) and audio mixing are delegated directly to a local,
 lightweight C99 GStreamer port binary \texttt{gst}, exchanging WebRTC SDP/ICE signaling lines directly over
-standard input and output pipes. We show that this model supports up to 10,000 concurrent signaling
-connections and reduces media encoding resource requirements by over 60\% when hardware-accelerated.
+standard input and output pipes.
 \end{abstract}
 
 \newpage
@@ -801,6 +800,8 @@ can be consolidated into a share-nothing Erlang/GStreamer node. By replacing mic
 and headless browsers with local \texttt{gst} C99 binary opened as port interfaces and Ingress Room Sticky Sessions, the system
 avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective
 SRE model for secure networks.
+
+I want to dedicate this work to Mariia Bielikova who support me during this creation.
 \begin{thebibliography}{99}
 
 \bibitem{rfc3264}

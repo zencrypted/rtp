@@ -117,10 +117,14 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 \begin{tikzpicture}
 [
     % ── Node styles ──────────────────────────────────────────────────────────────
-    block/.style={draw=blue!70, fill=blue!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
-    iblock/.style={draw=violet!70, fill=violet!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
-    tblock/.style={draw=teal!70, fill=teal!5, rectangle, minimum height=2.8em, minimum width=6.8em, rounded corners=4pt, align=center, font=\small, line width=0.8pt},
-    client/.style={draw=orange!80, fill=orange!5, rectangle, minimum height=4.5em, minimum width=9.5em, rounded corners=6pt, align=center, font=\small, thick, line width=1.2pt},
+    block/.style ={draw=blue!70, fill=blue!5, rectangle, minimum height=2.8em, minimum width=6.8em,
+                   rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    iblock/.style={draw=violet!70, fill=violet!5, rectangle, minimum height=2.8em, minimum width=6.8em,
+                   rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    tblock/.style={draw=teal!70, fill=teal!5, rectangle, minimum height=2.8em, minimum width=6.8em,
+                   rounded corners=4pt, align=center, font=\small, line width=0.8pt},
+    client/.style={draw=orange!80, fill=orange!5, rectangle, minimum height=4.5em, minimum width=9.5em,
+                   rounded corners=6pt, align=center, font=\small, thick, line width=1.2pt},
     % ── Arrow styles ─────────────────────────────────────────────────────────────
     arrow/.style={-{Stealth[scale=1.0]},  thick, draw=blue!70},
     iarrow/.style={-{Stealth[scale=1.0]}, thick, draw=violet!70},
@@ -258,9 +262,12 @@ architecture of the Erlang source modules located in \texttt{src/}:
 \begin{tikzpicture}
 [
     node distance=1.2cm and 0.8cm,
-    sup/.style={draw=red!70, fill=red!5, rectangle, minimum height=2.2em, minimum width=9.5em, rounded corners=3pt, font=\small\bfseries, line width=0.8pt, align=center},
-    worker/.style={draw=blue!70, fill=blue!5, rectangle, minimum height=2.2em, minimum width=9.5em, rounded corners=3pt, font=\small, line width=0.8pt, align=center},
-    port/.style={draw=violet!70, fill=violet!5, rectangle, minimum height=2.2em, minimum width=9.5em, rounded corners=3pt, font=\small, line width=0.8pt, align=center},
+    sup/.style={draw=red!70, fill=red!5, rectangle, minimum height=2.2em, minimum width=9.5em,
+                rounded corners=3pt, font=\small\bfseries, line width=0.8pt, align=center},
+    worker/.style={draw=blue!70, fill=blue!5, rectangle, minimum height=2.2em, minimum width=9.5em,
+                   rounded corners=3pt, font=\small, line width=0.8pt, align=center},
+    port/.style={draw=violet!70, fill=violet!5, rectangle, minimum height=2.2em, minimum width=9.5em,
+                 rounded corners=3pt, font=\small, line width=0.8pt, align=center},
     arrow/.style={-{Stealth[scale=1.0]}, thick, draw=gray!80}
 ]
     % Supervision Tree Nodes
@@ -285,15 +292,34 @@ architecture of the Erlang source modules located in \texttt{src/}:
 \begin{enumerate}
     \item \textbf{Application Lifecycle and Listeners (\texttt{rtp\_app.erl}, \texttt{rtp\_sup.erl})}:
           The application starts by initializing local database schemas (\texttt{kvs:join()}) and registering
-          the local node with the Syn pub/sub scope \\ (\texttt{syn:add\_node\_to\_scopes([rooms])}). \\ It spawns Cowboy/Bandit listeners for room signaling (Port 8081) and QoS telemetry (Port 8082) using the \texttt{rtp\_router} plug. The root supervisor (\texttt{rtp\_sup}) establishes a \texttt{one\_for\_one} supervision strategy, guarding the local database coordinator (\texttt{mnesia\_srv}) and the media manager (\texttt{media\_broker\_srv}).
-    \item \textbf{WebSocket Signaling Gateway (\texttt{n2o\_signaling.erl}, \texttt{rtp\_router.erl}, \texttt{routes.erl})}:
-          Incoming connections on port 8081 are routed to the \texttt{n2o\_signaling} module, which implements the \texttt{Elixir.WebSock} behavior. It decodes JSON signaling payloads (SDP offers/answers, ICE candidates, and client joins/leaves) and forwards them to the room coordination layer via Syn publish/subscribe channels.
-    \item \textbf{Stateful Room Coordinator (\texttt{room\_coordinator.erl})}:
-          When the first participant joins a room, the signaling channel dynamically spawns a stateful \texttt{room\_coordinator} \texttt{gen\_server} actor. The coordinator process registers itself in the local Syn registry, tracks participant presence lists, manages peer roles (publishers/subscribers), and handles state transitions for signaling sessions.
-    \item \textbf{Media Broker and OS Port Interface (\texttt{media\_broker\_srv.erl})}:
-          When media recording or compositing is triggered, the \texttt{room\_coordinator} invokes the \texttt{media\_broker\_srv} gen\_server. This broker spawns the native GStreamer binary (\texttt{gst\_recorder}) as a managed OS Port process using Erlang's \texttt{open\_port/2} with the \texttt{exit\_status} option. It maps Port I/O signaling, processes stream exits, and handles finalization. Upon room closure, the broker closes the port, triggering an asynchronous upload of the finalized MP4 recording to S3 storage before deleting the local temporary files.
-    \item \textbf{Local State Persistence (\texttt{mnesia\_srv.erl})}:
-          A dedicated gen\_server process wraps local Mnesia table structures. By operating Mnesia as an isolated, single-node schema, database operations bypass the latency of distributed lock verification, eliminating two-phase commit overhead.
+          the local node with the Syn pub/sub scope \\ (\texttt{syn:add\_node\_to\_scopes([rooms])}). \\
+          It spawns Cowboy/Bandit listeners for room signaling (Port 8081) and QoS telemetry (Port 8082)
+          using the \texttt{rtp\_routes} plug. The root supervisor (\texttt{rtp\_sup}) establishes
+          a \texttt{one\_for\_one} supervision strategy, guarding the local database
+          coordinator (\texttt{rtp\_store}) and the media manager (\texttt{rtp\_broker}).
+    \item \textbf{WebSocket Signaling Gateway (\texttt{rtp\_signaling}, \texttt{rtp\_routes}}:
+          Incoming connections on port 8081 are routed to the \texttt{rtp\_signaling} module,
+          which implements the \texttt{Elixir.WebSock} behavior. It decodes JSON signaling
+          payloads (SDP offers/answers, ICE candidates, and client joins/leaves) and forwards
+          them to the room coordination layer via Syn publish/subscribe channels.
+    \item \textbf{Stateful Room Coordinator (\texttt{rtp\_coordinator.erl})}:
+          When the first participant joins a room, the signaling channel dynamically spawns
+          a stateful \texttt{rtp\_coordinator} \texttt{gen\_server} actor. The coordinator
+          process registers itself in the local Syn registry, tracks participant presence
+          lists, manages peer roles (publishers/subscribers), and handles state transitions for signaling sessions.
+    \item \textbf{Media Broker and OS Port Interface (\texttt{rtp\_broker})}:
+          When media recording or compositing is triggered, the \texttt{rtp\_coordinator} invokes
+          the \texttt{rtp\_broker} gen\_server. This broker spawns the native GStreamer
+          binary (\texttt{gst}) as a managed OS Port process using
+          Erlang's \texttt{open\_port/2} with the \texttt{exit\_status} option.
+          It maps Port I/O signaling, processes stream exits, and handles finalization.
+          Upon room closure, the broker closes the port, triggering an asynchronous
+          upload of the finalized MP4 recording to S3 storage before deleting the
+          local temporary files.
+    \item \textbf{Local State Persistence (\texttt{rtp\_store})}:
+          A dedicated gen\_server process wraps local Mnesia table structures.
+          By operating Mnesia as an isolated, single-node schema, database operations bypass the
+          latency of distributed lock verification, eliminating two-phase commit overhead.
 \end{enumerate}
 
 \paragraph{Port-IPC Protocol and Port Signaling Serialization}
@@ -311,15 +337,18 @@ over standard I/O streams. The port descriptor transmits three primary payload f
     \item \textbf{Presence and Lifecycle Events}: Triggers peer setup and teardown inside
           GStreamer via \texttt{"peer\_joined"} and \texttt{"peer\_left"} signals containing participant role information.
 \end{itemize}
-Every control line sent to the GStreamer process is parsed synchronously in the GStreamer main event loop thread using a thread-safe GLib channel handler, preventing race conditions during dynamic pipeline alterations.
+
+Every control line sent to the GStreamer process is parsed synchronously in the GStreamer
+main event loop thread using a thread-safe GLib channel handler, preventing race
+conditions during dynamic pipeline alterations.
 
 \paragraph{Process Supervision and Failure Isolation}
 
 A core benefit of wrapping GStreamer pipelines in Erlang/OTP port supervisors is the isolation of media plane crashes.
 If a GStreamer pipeline crashes due to decoder pipeline errors or segmentation faults, Erlang's port driver automatically
 terminates the OS process, generating a \texttt{\{Port, \{exit\_status, Status\}\}} message.
-The \texttt{media\_broker\_srv} captures this exit signal, filters the active mixers map,
-and transmits a down-signal to the respective \texttt{room\_coordinator} actor.
+The \texttt{rtp\_broker} captures this exit signal, filters the active mixers map,
+and transmits a down-signal to the respective \texttt{rtp\_coordinator} actor.
 Because the room states are managed in isolated processes, a crash in one room's GStreamer
 pipeline cannot impact signaling or media flows in other concurrent rooms. This architecture
 implements a robust failure partition, isolating runtime vulnerabilities inside individual
@@ -336,6 +365,7 @@ and WAN coordination, achieving sub-microsecond transaction write latencies boun
 
 \newpage
 \subsubsection{Protocol Stack and Specifications}
+
 The monolith interfaces utilize a diverse set of network and inter-process communication (IPC) protocols
 to coordinate signaling, manage media routing, and report client telemetry.
 Table~\ref{tab:protocols} provides a comprehensive description of each protocol,
@@ -387,32 +417,63 @@ Media Path & GStreamer WebRTC stream compositing & X.609.3 / X.609.4 (Multimedia
 }
 \end{table}
 
-The mapping of WebRTC protocols to the ITU-T X.600-series recommendations establishes a standardized taxonomy and protocol translation mapping for the \texttt{rtp} gateway:
+The mapping of WebRTC protocols to the ITU-T X.600-series recommendations establishes a standardized taxonomy
+and protocol translation mapping for the \texttt{rtp} gateway:
+
 \begin{itemize}
     \item \textbf{Group Management and Signaling (X.601 / X.602)}:
-          The Cowboy/N2O WebSocket interface on Port 8081 performs peer session control and room state updates. This directly maps to the group membership management defined in ITU-T X.602 and the multi-peer communication framework of X.601, where room coordinators govern participant registration.
+          The Cowboy/N2O WebSocket interface on Port 8081 performs peer session control and room state updates.
+          This directly maps to the group membership management defined in ITU-T X.602 and the multi-peer
+          communication framework of X.601, where room coordinators govern participant registration.
     \item \textbf{Relayed Local Signaling (X.603 / X.603.1 / X.603.2)}:
-          Erlang-to-C99 Port communication over UNIX standard I/O pipes implements a low-overhead local control plane. This interaction model mirrors the relayed multicast protocols (N-plex) where audio mixing and video grid compositing coordinates are distributed through a local, high-speed relay agent.
+          Erlang-to-C99 Port communication over UNIX standard I/O pipes implements a low-overhead local control plane.
+          This interaction model mirrors the relayed multicast protocols (N-plex) where audio mixing and video grid
+          compositing coordinates are distributed through a local, high-speed relay agent.
     \item \textbf{Peer Telemetry and QoS Metrics (X.609.8 / X.609.10)}:
-          Telemetry data emitted via OTLP over Port 8082 maps client-side connection parameters (packet loss, jitter) and container resources to the live data source standards of X.609.8 and the data streaming signaling protocols of X.609.10, providing formal conformance for real-time observability.
+          Telemetry data emitted via OTLP over Port 8082 maps client-side connection parameters (packet loss, jitter)
+          and container resources to the live data source standards of X.609.8 and the data streaming signaling
+          protocols of X.609.10, providing formal conformance for real-time observability.
     \item \textbf{Multimedia Streaming Coordination (X.609.3 / X.609.4)}:
-          The GStreamer media plane handles incoming WebRTC streams, composites the video tracks, and mixes the audio signals. This runtime composition conforms to the multimedia streaming peer protocols of X.609.3/X.609.4, establishing $O(1)$ stream delivery while preserving security.
+          The GStreamer media plane handles incoming WebRTC streams, composites the video tracks,
+          and mixes the audio signals. This runtime composition conforms to the multimedia streaming
+          peer protocols of X.609.3/X.609.4, establishing $O(1)$ stream delivery while preserving security.
 \end{itemize}
 
 \newpage
 \subsubsection{Detailed Protocol Descriptions}
 
 \paragraph{1. WebRTC SDP \& Candidate Gathering}
-The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket signaling channel (WSS:8081) to negotiate media codecs and track directions. Concurrently, each endpoint's ICE agent gathers transport candidates from three sources: local interfaces (host candidates), public NAT reflections retrieved via STUN binding queries (RFC 8489) on port 3478 (server-reflexive candidates), and relay allocations obtained from the \texttt{eturnal} TURN server on port 3478/5349 (relayed candidates).
+
+The Session Description Protocol (SDP) is exchanged in plain text (RFC 8866) over the WebSocket
+signaling channel (WSS:8081) to negotiate media codecs and track directions. Concurrently,
+each endpoint's ICE agent gathers transport candidates from three sources: local
+interfaces (host candidates), public NAT reflections retrieved via STUN binding
+queries (RFC 8489) on port 3478 (server-reflexive candidates), and relay allocations
+obtained from the \texttt{eturnal} TURN server on port 3478/5349 (relayed candidates).
 
 \paragraph{2. ICE Connectivity Checks and Prioritization}
-Interactive Connectivity Establishment (ICE, RFC 8445) pairs the gathered local candidates with remote candidates received via signaling. These candidate pairs are sorted in descending order of priority (preferring direct host-to-host routes over host-to-reflexive, and prioritizing relayed paths lowest). The ICE agent then performs connectivity checks by transmitting STUN binding request packets directly across all active candidate pairs. Once a pair receives a valid STUN binding response, the connection is validated.
+
+Interactive Connectivity Establishment (ICE, RFC 8445) pairs the gathered local candidates
+with remote candidates received via signaling. These candidate pairs are sorted in descending
+order of priority (preferring direct host-to-host routes over host-to-reflexive,
+and prioritizing relayed paths lowest). The ICE agent then performs connectivity
+checks by transmitting STUN binding request packets directly across all active
+candidate pairs. Once a pair receives a valid STUN binding response, the connection is validated.
 
 \paragraph{3. STUN-to-TURN Fallback Mechanics}
-The transition from direct P2P pathing (STUN/P2P) to relayed transport (TURN) is a deterministic outcome of the ICE candidate pair prioritization and timeout checks. If both endpoints are positioned behind symmetric NATs or restrictive enterprise firewalls, direct STUN binding checks between host or server-reflexive candidates will fail due to NAT port binding translation mismatch or packet drop policies. The ICE agent then falls back to the relayed candidate pair. In this state, media traffic is sent to the allocated socket on the \texttt{eturnal} TURN server (RFC 8656), which strips or applies the TURN framing headers and relays the encapsulated SRTP/SRTCP (RFC 3711) packets to the peer over port 3478 (UDP/TCP) or port 5349 (TURNS over TLS/DTLS).
 
+The transition from direct P2P pathing (STUN/P2P) to relayed transport (TURN) is a deterministic
+outcome of the ICE candidate pair prioritization and timeout checks. If both endpoints are
+positioned behind symmetric NATs or restrictive enterprise firewalls, direct STUN binding
+checks between host or server-reflexive candidates will fail due to NAT port binding translation
+mismatch or packet drop policies. The ICE agent then falls back to the relayed candidate pair.
+In this state, media traffic is sent to the allocated socket on the \texttt{eturnal} TURN
+server (RFC 8656), which strips or applies the TURN framing headers and relays the
+encapsulated SRTP/SRTCP (RFC 3711) packets to the peer over port 3478 (UDP/TCP)
+or port 5349 (TURNS over TLS/DTLS).
 
 \paragraph{3. WebSocket API}
+
 The WebSocket (WS) API serves as the primary signaling and control plane, powered by the
 Cowboy web server and the N2O framework. It operates over WSS (Port 8081) using a binary-encoded
 or JSON text payload. The WS connection is stateful and sticky-routed to the specific Erlang node
@@ -420,6 +481,7 @@ hosting the room. It handles pub/sub events such as \texttt{peer\_joined}, \text
 chat messages, and the critical SDP/ICE signaling payloads.
 
 \paragraph{4. Telemetry (OTLP)}
+
 The system employs the OpenTelemetry Protocol (OTLP) to export QoS metrics, traces, and logs.
 Client browsers and the backend Erlang nodes stream telemetry data (such as packet loss, jitter,
 and CPU utilization) to the \texttt{rtp-telemetry} OTLP Receiver via HTTPS/WSS (Port 8082).
@@ -429,20 +491,33 @@ by the \texttt{otel-collector} and routed to Prometheus and OpenSearch for real-
 \subsection{SRE Network Isolation and QoS Configuration}
 \label{sec:sre-qos-isolation}
 
-In high-concurrency MCU environments, high-frequency telemetry reports (pushed via OTLP over WSS to port 8082) can introduce network queuing delays (bufferbloat) and packet drops on the primary media interfaces, directly degrading real-time audio and video tracks. To ensure telemetry traffic never interferes with the critical control plane (signaling) and data plane (media streaming), we configure dedicated virtual network interfaces and enforce Differentiated Services Code Point (DSCP) Class of Service (CoS) priority limits where:
+In high-concurrency MCU environments, high-frequency telemetry reports (pushed via OTLP over WSS to port 8082)
+can introduce network queuing delays (bufferbloat) and packet drops on the primary media interfaces, directly
+degrading real-time audio and video tracks. To ensure telemetry traffic never interferes with the critical
+control plane (signaling) and data plane (media streaming), we configure dedicated virtual network interfaces
+and enforce Differentiated Services Code Point (DSCP) Class of Service (CoS) priority limits where:
+
 \begin{equation}
 \text{QoS}_{\text{Control (Signaling)}} > \text{QoS}_{\text{Data (Media)}} > \text{QoS}_{\text{Telemetry}}
 \end{equation}
 
 \subsubsection{Multi-NIC Partitioning via Multus CNI}
-We segment the container traffic by attaching multiple network interface cards (NICs) to the pod namespace using the \texttt{Multus CNI} meta-plugin:
+
+We segment the container traffic by attaching multiple network interface cards (NICs) to the pod
+namespace using the \texttt{Multus CNI} meta-plugin:
+
 \begin{itemize}
-    \item \textbf{Data Plane Interface (\texttt{eth0})}: Designated exclusively for real-time WebRTC media streams (SRTP/SRTCP) on UDP.
-    \item \textbf{Control \& Telemetry Interface (\texttt{net1})}: Designated for stateful WebSocket signaling (port 8081) and high-volume OTLP telemetry reporting (port 8082).
+    \item \textbf{Data Plane Interface (\texttt{eth0})}:
+          Designated exclusively for real-time WebRTC media streams (SRTP/SRTCP) on UDP.
+    \item \textbf{Control \& Telemetry Interface (\texttt{net1})}:
+          Designated for stateful WebSocket signaling (port 8081) and high-volume OTLP telemetry reporting (port 8082).
 \end{itemize}
 
 \subsubsection{DSCP Packet Tagging and Queueing Disciplines}
-To protect media packets from telemetry bursts under link saturation, we apply Linux \texttt{iptables} rules in a container lifecycle hook to tag egress packets with distinct DSCP classes:
+
+To protect media packets from telemetry bursts under link saturation, we apply Linux \texttt{iptables}
+rules in a container lifecycle hook to tag egress packets with distinct DSCP classes:
+
 \begin{itemize}
     \item \textbf{Control (WS Signaling, WSS:8081)}: Tagged as \textbf{CS5} (Class Selector 5, DSCP 40 / binary \texttt{101000}) for high-priority signaling.
     \item \textbf{Data (SRTP/SRTCP, UDP)}: Tagged as \textbf{EF} (Expedited Forwarding, DSCP 46 / binary \texttt{101110}) or \textbf{AF41} (Assured Forwarding, DSCP 34 / binary \texttt{100010}) to guarantee low delay and low packet loss.
@@ -451,7 +526,9 @@ To protect media packets from telemetry bursts under link saturation, we apply L
 
 \newpage
 \subsubsection{Kubernetes Manifest Implementation}
-Below is the production-grade SRE configuration manifest for the \texttt{rtp} pod, implementing Multus NIC partitioning, bandwidth limits, and DSCP packet marking capabilities:
+
+Below is the production-grade SRE configuration manifest for the \texttt{rtp} pod,
+implementing Multus NIC partitioning, bandwidth limits, and DSCP packet marking capabilities:
 
 \begin{verbatim}
 apiVersion: apps/v1
@@ -522,9 +599,9 @@ media composition, and session finalization.
 ]
     % Lifelines
     \draw[line] (0,0) -- (0,-10) node[below] {Browser Client};
-    \draw[line] (4,0) -- (4,-10) node[below] {Cowboy / N2O};
-    \draw[line] (8,0) -- (8,-10) node[below] {media\_broker\_srv};
-    \draw[line] (12,0) -- (12,-10) node[below] {gst (C99)};
+    \draw[line] (4,0) -- (4,-10) node[below] {N2O};
+    \draw[line] (8,0) -- (8,-10) node[below] {rtp\_broker};
+    \draw[line] (12,0) -- (12,-10) node[below] {gst};
 
     % Headings
     \node[above] at (0,0) {\textbf{Browser Client}};
@@ -828,7 +905,8 @@ and headless browsers with local \texttt{gst} C99 binary opened as port interfac
 avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective
 SRE model for secure networks.
 
-I want to dedicate this work to Mariia Bielikova who support me during this creation.
+I want to dedicate this work to Mariia Bielikova who supported me during this creation.
+
 \begin{thebibliography}{99}
 
 \bibitem{rfc3264}

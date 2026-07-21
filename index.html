@@ -7,8 +7,8 @@
   <meta name="description" content="RTP — Minimal MCU Gateway of ANSI C99 with GStreamer for High-Density Video Conferencing on Erlang/OTP" />
   <meta name="author" content="5HT" />
   <title>RTP</title>
-  <link rel="stylesheet" href="https://n2o.dev/blank.css?x=15" />
-  <link rel="stylesheet" href="https://n2o.dev/zima.css?x=15" />
+  <link rel="stylesheet" href="https://n2o.dev/blank.css" />
+  <link rel="stylesheet" href="https://n2o.dev/nato.css" />
   <link rel="shortcut icon" type="image/x-icon" href="img/favicon.ico" />
 </head>
 <body>
@@ -115,9 +115,9 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 │       └── css/
 │           ├── blank.css     Base Synrc CSS Layer
 │           └── color.css     Custom Synrc CSS Layer
-├── lib/rtp/
-│   ├── live_stream.ex        HTTP Live Streaming handler — strips ETag, no-store
-│   ├── n2o_socket.ex         N2O Bandit WebSocket proxy
+├── lib/
+│   ├── hls.ex                HTTP Live Streaming handler — strips ETag, no-store
+│   ├── n2o.ex                N2O Bandit WebSocket proxy
 │   ├── static.ex             Plug.Static asset server — port 8081
 │   └── ws.ex                 WebSocket server — port 8001 → rtp_signaling
 └── src/

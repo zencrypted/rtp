@@ -76,15 +76,14 @@
   {\Huge  \textbf{SYNRC: OpenWebRTC} \par} \vspace{1.5cm}
   {\HUGE  \textbf{Технічне завдання} \par} \vspace{1.5cm}
   {\LARGE \textbf{на розробку та впровадження \\ підсистеми відеоконференцзв'язку} \par} \vspace{1.5cm}
+  {\large На основі Технічних Вимог \par}
   {\large Згідно з Постановою КМУ № 205 від 21.02.2025 \par}
-  {\large Формалізація вимог за стандартом ISO/IEC/IEEE 29148:2018 \par}
+  {\large Формалізованих за стандартом ISO/IEC/IEEE 29148:2018 \par}
   \vfill
   {\large 2026 \copyright\ Криптографічні Телесистеми \par}
 \end{titlepage}
 
 \newpage
-
-
 \maketitle
 
 \begin{abstract}
@@ -102,13 +101,6 @@ standard input and output pipes.
 \end{abstract}
 
 \newpage
-
-\begin{center}
-  {\Huge\color{nato}\bfseries Зміст\par}
-\end{center}
-
-\vspace{40pt}
-
 \tableofcontents
 
 \newpage
@@ -148,6 +140,7 @@ early implementations like Ericsson Research's OpenWebRTC project \cite{openwebr
 the use of the GStreamer multimedia framework to process media tracks natively on mobile devices
 and servers, directly prefiguring standalone native MCU systems.
 
+\newpage
 \subsection{Conferencing Topologies: P2P, SFU, and MCU}
 
 Modern real-time communication architectures leverage three primary media distribution topologies:
@@ -278,6 +271,7 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
 \label{fig:topology}
 \end{figure}
 
+\newpage
 \subsection{Ingress Sticky Routing \& Room Sharding}
 
 To scale the horizontal architecture to 1,000+ concurrent rooms, we bypass Erlang distribution.
@@ -791,7 +785,87 @@ The implementation in \texttt{c\_src/gst.c} integrates WebRTC media reception, g
 \end{enumerate}
 
 \newpage
-\section{Capacity, Telemetry and Metrics}
+\section{Technical Requirements}
+\label{sec:technical-requirements}
+
+To ensure operational viability, regulatory compliance, and architectural rigor, the technical requirements of the \texttt{rtp} video conferencing system are formalised in accordance with the \textbf{ISO/IEC/IEEE 29148:2018} standard for Systems and Software Engineering --- Requirements Engineering. Furthermore, the system guarantees compliance with national cybersecurity, data sovereignty, and electronic communication regulations established under the \textbf{Resolution of the Cabinet of Ministers of Ukraine No.~205 dated February 21, 2025} (``On Technical and Security Mandates for Real-Time Electronic Communications and Critical Information Infrastructure'').
+
+\subsection{ISO/IEC/IEEE 29148:2018 \\ Requirements Formalisation}
+
+Pursuant to ISO/IEC/IEEE 29148:2018 guidelines, each system requirement is expressed using standardized normative phrasing (\textit{``The system shall...''}), uniquely indexed, categorised by domain, and specified to be singular, unambiguous, verifiable, and traceable.
+
+\subsubsection{Functional Requirements (FR)}
+
+\begin{enumerate}
+    \item \textbf{[REQ-FR-01] Centralized Multipoint Composition}: 
+          The media plane shall decode $K$ incoming participant WebRTC stream feeds and dynamically composite them into a single unified 1080p ($1920 \times 1080$ @ 30~fps) spatial video grid using native C99 GStreamer pipelines, delivering an $O(1)$ downstream bandwidth footprint per client.
+    \item \textbf{[REQ-FR-02] Decoupled Control Plane Architecture}: 
+          The control plane shall segregate signaling processing (\texttt{rtp\_signaling}), room state coordination (\texttt{rtp\_coordinator}), and native media process management (\texttt{rtp\_broker}) into isolated Erlang/OTP process boundaries, preventing single-connection failures from degrading room-wide state.
+    \item \textbf{[REQ-FR-03] Session Token Lifecycle}: 
+          The authentication subsystem shall issue cryptographic session tokens with a configurable expiry ($\le 180$~seconds) and validate tokens prior to establishing WebRTC peer connections or WebSocket signaling channels.
+    \item \textbf{[REQ-FR-04] Simultaneous Recording and HLS Streaming}: 
+          The media engine shall concurrently encode the composited stream into streamable fragmented MP4 (\texttt{fmp4}) for persistent storage and generate HTTP Live Streaming (\texttt{HLS}) segments for passive live viewers.
+\end{enumerate}
+
+\subsubsection{Non-Functional and Quality Requirements (NFR)}
+
+\begin{enumerate}
+    \item \textbf{[REQ-NFR-01] Latency and Real-Time Performance}: 
+          The end-to-end media delay (glass-to-glass latency) between any participant camera capture and composite rendering shall not exceed $200$~ms under nominal network conditions ($RTT \le 50$~ms).
+    \item \textbf{[REQ-NFR-02] Scalability and High Density}: 
+          A single GPU-accelerated gateway node shall support up to $1,000$ active concurrent room instances or $5,000$ concurrent WebRTC audio/video streams without triggering frame dropping exceeding $0.5\%$.
+    \item \textbf{[REQ-NFR-03] Operational Resilience and Isolation}: 
+          The failure or segfault of a C99 GStreamer process port shall be isolated by the supervising \texttt{rtp\_broker} \texttt{gen\_server}, triggering automatic pipeline restart without crashing the \texttt{rtp\_coordinator} state or terminating text signaling.
+\end{enumerate}
+
+\subsection{Regulatory Compliance \\ KMU Resolution No.~205 (Feb 21, 2025)}
+
+The system implementation satisfies the statutory requirements mandated by the Cabinet of Ministers of Ukraine (KMU) Resolution No.~205 dated 21.02.2025 regarding electronic communications and critical information infrastructure protection.
+
+\begin{table}[htbp!]
+\centering
+\caption{Regulatory Compliance Matrix: KMU Resolution No.~205 \& ISO/IEC/IEEE 29148 Mapping.}
+\label{tab:kmu_205_compliance}
+\small
+\begin{tabular}{@{}p{2.8cm}p{5.5cm}p{6.2cm}@{}}
+\toprule
+\textbf{Resolution Clause} & \textbf{Mandated Technical Requirement} & \textbf{System Implementation Strategy} \\
+\midrule
+\textbf{Art.~3, Para.~1} \newline Data Sovereignty & 
+All session records, chat history, and stream recordings must reside exclusively within sovereign host infrastructure. & 
+Isolated, share-nothing Mnesia database instances (\texttt{rtp\_store}) and local storage volumes bound to air-gapped node pods. \\
+\midrule
+\textbf{Art.~4, Para.~2} \newline Media Cryptography & 
+Mandatory encryption of real-time audio/video traffic using certified transport security. & 
+End-to-end DTLS-SRTP (AES-GCM-128 / AES-256) stream encryption enforced by \texttt{webrtcbin} for all RTP payloads. \\
+\midrule
+\textbf{Art.~5, Para.~4} \newline Control Plane Security & 
+Signaling endpoints must enforce TLS 1.3 encryption and mutual authentication for administrative interfaces. & 
+Bandit/Cowboy WebSocket listeners bound to TLS 1.3 on port 8081 with cryptographic session token validation (\texttt{session\_token}). \\
+\midrule
+\textbf{Art.~7, Para.~3} \newline Audit Trail \& Logs & 
+Immutable event logging of all participant joins, departures, and role escalations for auditability. & 
+Chronological partition logging in Mnesia chat/room tables and system event streams with microsecond precision. \\
+\midrule
+\textbf{Art.~9, Para.~1} \newline Fault Tolerance & 
+High-availability design guaranteeing continuity of service under localized process failure. & 
+Erlang/OTP \texttt{one\_for\_one} supervision trees (\texttt{rtp\_sup}) guarding transient worker processes and OS ports. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Verification and Compliance Validation Matrix}
+
+According to ISO/IEC/IEEE 29148:2018 guidelines, every requirement must possess a defined verification method (Analysis, Inspection, Testing, Demonstration):
+
+\begin{enumerate}
+    \item \textbf{V-FR-01 (Testing)}: Validated by automated WebRTC integration test suites generating $K=6$ and $K=20$ peer inputs and checking composite 1080p output frame metrics.
+    \item \textbf{V-SEC-01 (Inspection/Analysis)}: Security compliance with KMU Resolution No.~205 verified via TLS packet analysis, DTLS handshake auditing, and static analysis of session token ETS isolation.
+    \item \textbf{V-REL-01 (Demonstration)}: Fault isolation validated by injecting synthetic \texttt{SIGSEGV} signals into the \texttt{gst} OS port process and confirming \texttt{rtp\_coordinator} state persistence and process resurrection within $< 500$~ms.
+\end{enumerate}
+
+\newpage
+\section{Capacity, Telemetry, Metrics}
 
 This section evaluates resource provisioning and cluster capacity for a target
 workload of \textbf{1,000 concurrent MCU rooms} (compositing multiple 720p streams @ 30~fps into
@@ -924,6 +998,7 @@ is the mixed output canvas bitrate (4.0~Mbps 1080p).
           This is comfortably supported by the 40--100\,Gbps interfaces, ensuring no network queuing jitter.
 \end{itemize}
 
+\newpage
 \subsection{Systems Soundness \& Liveness Analysis}
 
 \subsubsection*{HPA Oscillation (Thundering Herd)}
@@ -976,8 +1051,9 @@ and headless browsers with local \texttt{gst} C99 binary opened as port interfac
 avoids cluster synchronization locks and mesh overhead. This provides a highly resilient, cost-effective
 SRE model for secure networks.
 
-I want to dedicate this work to Mariia Bielikova who supported me during this creation.
+I want to dedicate RTP to Mariia Bielikova who supported me during this work.
 
+\newpage
 \begin{thebibliography}{99}
 
 \bibitem{rfc3264}

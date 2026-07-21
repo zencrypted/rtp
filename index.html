@@ -113,9 +113,8 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 │       │   ├── rtc.js      WebRTC client: peer connection, SDP/ICE, telemetry
 │       │   └── cast.js     HLS viewer: hls.js player, retro/live seek, telemetry
 │       └── css/
-│           ├── rtp.css         Conference participant UI styles
-│           ├── rtp-cast.css    Broadcast viewer UI styles
-│           └── rtp-login.css   Login page styles
+│           ├── blank.css        # Base Synrc CSS Layer
+│           └── color.css        # Custom Synrc CSS Layer
 ├── lib/rtp/
 │   ├── live_stream.ex      HTTP Live Streaming handler — strips ETag, no-store
 │   ├── n2o_socket.ex       N2O Bandit WebSocket proxy

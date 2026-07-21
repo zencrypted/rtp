@@ -1,0 +1,32 @@
+# Build artifacts
+_build/
+deps/
+*.beam
+
+# Mix / rebar3
+erl_crash.dump
+*.ez
+
+# C binary compiled from c_src/
+priv/gst
+
+# Generated HLS output at runtime
+priv/static/rooms/
+
+# Mnesia runtime data
+Mnesia.*/
+mnesia_data/
+
+# Logs
+*.log
+
+# Stale test artifacts
+test*.m3u8
+test*.mp4
+output.mp4
+
+# macOS
+.DS_Store
+
+# Editor
+.elixir_ls/

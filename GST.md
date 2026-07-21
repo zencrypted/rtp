@@ -21,7 +21,7 @@ of the RTP video conferencing system. It fulfils three simultaneous responsibili
    simultaneously writing the session to disk in HLS or fragmented MP4 format.
 
 The binary is spawned as a supervised OS port process by the Erlang
-`media_broker_srv` gen_server. All signaling is exchanged as newline-delimited
+`rtp_broker` gen_server. All signaling is exchanged as newline-delimited
 JSON over UNIX standard I/O pipes, making the media plane fully decoupled from
 the Erlang control plane.
 

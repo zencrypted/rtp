@@ -65,17 +65,17 @@
     of a given room are bound to the same Erlang node via Ingress sticky sessions,
     eliminating inter-node cluster traffic and allowing horizontal scaling as share-nothing pods.</p>
     <figure><code>
-SPA ── TCP:8001 WSS SDP/ICE ──► n2o_signaling
+SPA ── TCP:8001 WSS SDP/ICE ──► rtp_signaling
                                       │
-                             room_coordinator
+                             rtp_coordinator
                                       │
-                               media_broker_srv
+                               rtp_broker
                                       │ UNIX pipe stdin JSON
                                  priv/gst (C99)
                                       │ UNIX pipe stdout SDP/ICE
-                             media_broker_srv
+                             rtp_broker
                                       │ Erlang msg via Syn
-                                 n2o_signaling ── TCP:8001 WSS push ──► SPA
+                                 rtp_signaling ── TCP:8001 WSS push ──► SPA
 
 Browser  ══ UDP dynamic DTLS-SRTP camera ══► priv/gst (MCU)
 priv/gst ══ UDP dynamic DTLS-SRTP composite ══► Browser
@@ -120,14 +120,14 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 │   ├── live_stream.ex      HTTP Live Streaming handler — strips ETag, no-store
 │   ├── n2o_socket.ex       N2O Bandit WebSocket proxy
 │   ├── static.ex           Plug.Static asset server — port 8081
-│   └── ws.ex               WebSocket server — port 8001 → n2o_signaling
+│   └── ws.ex               WebSocket server — port 8001 → rtp_signaling
 └── src/
-    ├── media_broker_srv.erl  gen_server: GStreamer port lifecycle and Port IPC bridge
-    ├── mnesia_srv.erl        gen_server: Mnesia schema init, per-room chat tables
-    ├── n2o_signaling.erl     WebSock handler: SDP/ICE signaling, peer registration
-    ├── room_coordinator.erl  gen_server: room state, participants, media delegation
+    ├── rtp_broker.erl  gen_server: GStreamer port lifecycle and Port IPC bridge
+    ├── rtp_store.erl        gen_server: Mnesia schema init, per-room chat tables
+    ├── rtp_signaling.erl     WebSock handler: SDP/ICE signaling, peer registration
+    ├── rtp_coordinator.erl  gen_server: room state, participants, media delegation
     ├── rtp_app.erl           OTP Application: listeners, Syn scopes, session table
-    ├── rtp_sup.erl           OTP Supervisor one_for_one: mnesia_srv worker
+    ├── rtp_sup.erl           OTP Supervisor one_for_one: rtp_store worker
     ├── rtp_syn.erl           N2O MQ backend: Syn v3 pub/sub as N2O pool registry
     └── session_token.erl     ETS-backed session token: issue, validate, update_device
     </code></figure>
@@ -152,22 +152,22 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 }).
     </code></figure>
 
-    <p><b>n2o_signaling.erl</b> — WebSock handler implementing <code>Elixir.WebSock</code>.
+    <p><b>rtp_signaling.erl</b> — WebSock handler implementing <code>Elixir.WebSock</code>.
     Dispatches incoming JSON frames:</p>
     <figure><code>
 Client Message              Handler Action
 ─────────────────────────────────────────────────────────────────
-{"type":"ready"}            room_coordinator:originate_video/3
+{"type":"ready"}            rtp_coordinator:originate_video/3
 {"type":"get_room_info"}    push room_info with started_at + hls_format
 {"type":"get_peers"}        push peer_list
 {"type":"ping"}             no-op keep-alive
-{"sdp":{"type":"answer"}}   forward SDP answer to room_coordinator
-{"candidate":{...}}         forward ICE candidate to room_coordinator
+{"sdp":{"type":"answer"}}   forward SDP answer to rtp_coordinator
+{"candidate":{...}}         forward ICE candidate to rtp_coordinator
     </code></figure>
-    <p>On <code>terminate/2</code>, calls <code>room_coordinator:peer_left/2</code>
+    <p>On <code>terminate/2</code>, calls <code>rtp_coordinator:peer_left/2</code>
     and unregisters from Syn.</p>
 
-    <p><b>room_coordinator.erl</b> — Per-room <code>gen_server</code> registered in
+    <p><b>rtp_coordinator.erl</b> — Per-room <code>gen_server</code> registered in
     the <code>rooms</code> Syn scope under the binary room ID.</p>
     <figure><code>
 -record(state, {
@@ -182,7 +182,7 @@ Client Message              Handler Action
     <code>peer_left</code>, <code>terminate_room</code>, <code>get_started_at</code>,
     <code>get_peers</code>. On terminate, unregisters from Syn and stops the media broker.</p>
 
-    <p><b>media_broker_srv.erl</b> — Per-room-group <code>gen_server</code> managing the
+    <p><b>rtp_broker.erl</b> — Per-room-group <code>gen_server</code> managing the
     GStreamer OS port lifecycle. Spawns <code>priv/gst</code> on first peer join:</p>
     <figure><code>
 open_port({spawn_executable, Binary}, [
@@ -200,7 +200,7 @@ open_port({spawn_executable, Binary}, [
     client WebSocket PIDs — a <code>'DOWN'</code> message triggers clean departure.
     Last-peer departure closes the port, terminating the GStreamer process.</p>
 
-    <p><b>mnesia_srv.erl</b> — Singleton <code>gen_server</code> initializing Mnesia.
+    <p><b>rtp_store.erl</b> — Singleton <code>gen_server</code> initializing Mnesia.
     Per-room tables (<code>chat_room_&lt;RoomId&gt;</code>) are created lazily as
     <code>ordered_set disc_copies</code>, keyed by <code>{room_id, timestamp}</code>.</p>
 
@@ -284,13 +284,13 @@ Standard  Description                          System Mapping
 ────────────────────────────────────────────────────────────────────────────
 H.264     AVC video codec                      x264enc — WebRTC + HLS
 H.265     HEVC video codec                     x265enc — HEVC HLS pipeline
-H.323     Packet multimedia systems            room_coordinator mirrors H.323 MCU
+H.323     Packet multimedia systems            rtp_coordinator mirrors H.323 MCU
 H.235.8   SRTP key exchange via signaling      DTLS-SRTP via webrtcbin
-H.239     Role management (presenter/viewer)   role field in n2o_signaling state
+H.239     Role management (presenter/viewer)   role field in rtp_signaling state
 H.245     Control protocol for multimedia      SDP — RFC 8866 / RFC 3264
 G.711     PCM 64 kbit/s audio                  WebRTC baseline audio
 G.722     7 kHz wideband audio                 WebRTC HD voice
-T.124     Generic conference control           room_coordinator gen_server
+T.124     Generic conference control           rtp_coordinator gen_server
 X.601     Multi-peer communications framework  N2O WebSocket + Syn room scope
 X.603     Relayed multicast protocol           Erlang Port IPC stdin/stdout relay
     </code></figure>

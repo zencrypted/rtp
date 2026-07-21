@@ -14,7 +14,7 @@ into a single cohesive Erlang/OTP application.
 ├── c_src/
 │   └── gst.c                    # GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── rtp_token.hrl            # session_token record: token, user, room, device, expiry
+│   └── rtp_token.hrl            # rtp_token record: token, user, room, device, expiry
 ├── config/
 │   ├── config.exs               # Elixir/OTP application environment
 │   ├── sys.config               # Mnesia dir, N2O parameters, port bindings
@@ -36,7 +36,7 @@ into a single cohesive Erlang/OTP application.
 │   ├── hls.ex                   # HTTP Live Streaming handler — strips ETag, forces no-store
 │   ├── n2o.ex                   # RTP.N2O <-> Bandit WebSocket proxy
 │   ├── static.ex                # Plug.Static asset server (port 8081) - routes to RTP.N2O
-│   └── ws.ex                    # WebSocket server (port 8001) — routes to n2o_signaling
+│   └── ws.ex                    # WebSocket server (port 8001) — routes to rtp_signaling
 ├── src/
 │   ├── rtp_private.erl          # N2O Nitro page: p2p chat history, file upload
 │   ├── rtp_room.erl             # N2O Nitro page: room chat history, member list, file upload
@@ -47,7 +47,7 @@ into a single cohesive Erlang/OTP application.
 │   ├── rtp_coordinator.erl      # gen_server: room state, participant presence, media delegation
 │   ├── rtp_routes.erl           # N2O URL router: /app/index.htm → index, /app/login.htm → login
 │   ├── rtp_app.erl              # OTP Application: listeners, Syn scopes, session table, banner
-│   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): mnesia_srv worker
+│   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): rtp_store worker
 │   ├── rtp_syn.erl              # N2O MQ backend: wraps Syn v3 pub/sub as N2O pool registry
 │   ├── rtp.app.src              # Application descriptor and dependency list
 │   └── rtp_token.erl            # ETS-backed session token: issue, validate, update_device
@@ -76,11 +76,11 @@ graph TD
     end
 
     subgraph Pod["Erlang/OTP Pod"]
-        WS["n2o_signaling — Bandit :8001"]
-        Coord["room_coordinator — gen_server"]
-        Broker["media_broker_srv — gen_server"]
+        WS["rtp_signaling — Bandit :8001"]
+        Coord["rtp_coordinator — gen_server"]
+        Broker["rtp_broker — gen_server"]
         GST["GStreamer MCU — priv/gst C99"]
-        DB["mnesia_srv — Mnesia DB"]
+        DB["rtp_store — Mnesia DB"]
         Syn["Syn Registry"]
     end
 
@@ -126,6 +126,30 @@ composites them into a single 1920 × 1080 grid, re-encodes the composite, and b
 a **single stream** to every participant. This ensures O(1) bandwidth and decoding
 complexity at the client, independent of the number of active participants.
 
+### 2.2 Control Plane Separation of Concerns
+
+The Erlang/OTP control plane strictly decouples connection management, logical room state,
+and media processing into three distinct layers. This separation ensures fault isolation,
+predictable latency, and granular crash recovery:
+
+1. **Signaling** `rtp_signaling`: Maps 1:1 to an active WebSocket connection.
+   It acts as the edge protocol translator, converting JSON SDP/ICE messages
+   from the browser into internal Erlang messages. If a client sends malformed
+   data or drops the TCP connection ungracefully, only this isolated process terminates,
+   leaving the rest of the room unaffected.
+
+2. **Coordinator** `rtp_coordinator`: The pure domain-logic hub, mapping 1:1 to a conference room.
+   It manages the participant list, presence broadcasts, and chat routing.
+   By keeping it free from heavy I/O and OS process management,
+   the coordinator maintains extremely low latency and high stability.
+   It serves as the source of truth for the room.
+
+3. **Broker** `rtp_broker`: The perilous boundary layer interfacing with the C99 GStreamer media pipeline.
+   Managing external OS processes via Erlang Ports involves handling unpredictable `stdout` chunking, buffering,
+   and potential C-level crashes. The broker isolates this risk. If the C pipeline segfaults or the IPC
+   pipe backs up, the broker can absorb the crash or block without freezing the room coordinator,
+   allowing for graceful media recovery while text chat and presence remain fully operational.
+
 ## 3. Erlang/OTP Module Descriptions
 
 ### 3.1 Application Bootstrap — `rtp_app.erl`
@@ -134,7 +158,7 @@ complexity at the client, independent of the number of active participants.
 
 1. Configures N2O: port `8001`, protocols `[nitro_n2o, n2o_heart]`, MQ backend `rtp_syn`.
 2. Calls `kvs:join()` to initialize the KVS schema layer.
-3. Calls `session_token:init_table()` to create the ETS session store.
+3. Calls `rtp_token:init_table()` to create the ETS session store.
 4. Registers the `rooms` and `n2o_mq` Syn scopes via `syn:add_node_to_scopes/1`.
 5. Spawns two Bandit listeners: WebSocket on port `8001`, static assets on port `8081`.
 6. Starts `rtp_sup`.
@@ -147,13 +171,13 @@ The startup banner reports hardware capacity heuristics:
 ### 3.2 Supervisor — `rtp_sup.erl`
 
 `one_for_one` strategy with intensity `5` / period `10`. Supervises a single
-permanent worker: `mnesia_srv`. Room coordinators and media brokers are started
-transiently on-demand by `room_coordinator:ensure_started/1`.
+permanent worker: `rtp_store`. Room coordinators and media brokers are started
+transiently on-demand by `rtp_coordinator:ensure_started/1`.
 
-### 3.3 Session Authentication — `session_token.erl` / `include/session_token.hrl`
+### 3.3 Session Authentication — `rtp_token.erl`
 
 ```erlang
--record(session_token, {
+-record(rtp_token, {
     token  :: binary(),            % Unique opaque session token
     user   :: binary(),            % Username
     room   :: binary(),            % Room name
@@ -164,12 +188,12 @@ transiently on-demand by `room_coordinator:ensure_started/1`.
 
 Token lifecycle:
 - **`issue(User, Room)`** — generates a cryptographic token via `n2o_secret:sid/1`,
-  stores the record in the `session_tokens` ETS table with a 3-minute TTL.
+  stores the record in the `rtp_tokens` ETS table with a 3-minute TTL.
 - **`validate(Token)`** — looks up the ETS table, rejects expired entries and removes them.
 - **`update_device(Token, PeerId)`** — associates the ephemeral WebRTC `peer_id` with
   the session on first WebSocket connection.
 
-### 3.4 WebSocket Signaling — `n2o_signaling.erl`
+### 3.4 WebSocket Signaling — `rtp_signaling.erl`
 
 Implements the `Elixir.WebSock` behaviour. State record:
 
@@ -183,7 +207,7 @@ Implements the `Elixir.WebSock` behaviour. State record:
 }).
 ```
 
-**`init/1`**: Generates a unique `peer_id`, ensures the `room_coordinator` is started,
+**`init/1`**: Generates a unique `peer_id`, ensures the `rtp_coordinator` is started,
 updates the session token device field, registers the process in the `rooms` Syn scope
 (`syn:register(rooms, PeerId, self())`), and sends `send_init_msg` to itself.
 
@@ -191,12 +215,12 @@ updates the session token device field, registers the process in the `rooms` Syn
 
 | Client Message | Handler Action |
 |---|---|
-| `{"type":"ready"}` | Calls `room_coordinator:originate_video/3` — triggers GStreamer peer join |
+| `{"type":"ready"}` | Calls `rtp_coordinator:originate_video/3` — triggers GStreamer peer join |
 | `{"type":"get_room_info"}` | Retrieves `started_at` from broker; pushes `room_info` |
 | `{"type":"get_peers"}` | Retrieves peer list from broker; pushes `peer_list` |
 | `{"type":"ping"}` | No-op keep-alive |
-| `{"sdp":{"type":"answer","sdp":...}}` | Forwards SDP answer to `room_coordinator` |
-| `{"candidate":...}` | Forwards ICE candidate to `room_coordinator` |
+| `{"sdp":{"type":"answer","sdp":...}}` | Forwards SDP answer to `rtp_coordinator` |
+| `{"candidate":...}` | Forwards ICE candidate to `rtp_coordinator` |
 
 **`handle_info/2`**: Routes Erlang messages to WebSocket pushes:
 
@@ -209,9 +233,9 @@ updates the session token device field, registers the process in the `rooms` Syn
 | `{peer_joined, PeerId}` | `{"type":"peer_joined","peer_id":"..."}` |
 | `{peer_left, PeerId}` | `{"type":"peer_left","peer_id":"..."}` |
 
-**`terminate/2`**: Calls `room_coordinator:peer_left/2` and unregisters from Syn.
+**`terminate/2`**: Calls `rtp_coordinator:peer_left/2` and unregisters from Syn.
 
-### 3.5 Room Coordinator — `room_coordinator.erl`
+### 3.5 Room Coordinator — `rtp_coordinator.erl`
 
 A per-room `gen_server` started on-demand by `ensure_started/1`. It is registered
 in the `rooms` Syn scope under the binary room ID. State record:
@@ -231,18 +255,18 @@ Handles:
 |---|---|
 | `{join, Participant}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
 | `{leave, ParticipantId}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
-| `{chat, Sender, Message}` | Writes to Mnesia via `mnesia_srv`; publishes via `n2o:send/2` |
-| `{originate_video, PeerId, ClientPid}` | Lazily starts `media_broker_srv`; calls `peer_joined/4` |
-| `{sdp_answer, PeerId, Sdp}` | Delegates to `media_broker_srv:sdp_answer/4` |
-| `{ice_candidate, PeerId, Candidate}` | Delegates to `media_broker_srv:ice_candidate/4` |
-| `{peer_left, PeerId}` | Delegates to `media_broker_srv:peer_left/3` |
-| `terminate_room` | Calls `media_broker_srv:terminate_room/2`; stops broker |
+| `{chat, Sender, Message}` | Writes to Mnesia via `rtp_store`; publishes via `n2o:send/2` |
+| `{originate_video, PeerId, ClientPid}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
+| `{sdp_answer, PeerId, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
+| `{ice_candidate, PeerId, Candidate}` | Delegates to `rtp_broker:ice_candidate/4` |
+| `{peer_left, PeerId}` | Delegates to `rtp_broker:peer_left/3` |
+| `terminate_room` | Calls `rtp_broker:terminate_room/2`; stops broker |
 | `get_started_at` | Queries broker for recording start timestamp |
 | `get_peers` | Queries broker for active peer list |
 
 On `terminate/2`, unregisters from Syn and stops the media broker if active.
 
-### 3.6 Media Broker — `media_broker_srv.erl`
+### 3.6 Media Broker — `rtp_broker.erl`
 
 A per-room-group `gen_server` managing the GStreamer port process lifecycle. State:
 
@@ -292,7 +316,7 @@ If the process dies (browser tab closed, network drop), the `'DOWN'` message tri
 empty, the port is closed (`catch port_close(Port)`), automatically terminating
 the GStreamer process and freeing media resources.
 
-### 3.7 Persistence — `mnesia_srv.erl`
+### 3.7 Persistence — `rtp_store.erl`
 
 A named `gen_server` (singleton) initializing Mnesia on startup. Schema:
 
@@ -320,34 +344,36 @@ reg(Pool, _Value) ->
 This provides in-memory, distributed-optional pub/sub for N2O page events
 (chat messages, member presence) without any external message broker dependency.
 
-### 3.9 URL Router — `routes.erl`
+### 3.9 URL Router — `rtp_routes.erl`
 
 N2O router implementing `init/2` and `finish/2`. Maps HTTP path prefixes to
 Erlang page modules:
 
 | Path prefix | Module |
 |---|---|
-| `/` or `` | `login` |
-| `/ws/index...` or `/app/index...` | `index` |
-| `/ws/login...` or `/app/login...` | `login` |
+| `/` or `` | `rtp_login` |
+| `/ws/index...` or `/app/index...` | `rtp_room` |
+| `/ws/login...` or `/app/login...` | `rtp_login` |
 
-### 3.10 Login Page — `login.erl`
+### 3.10 Login Page — `rtp_login.erl`
 
 N2O Nitro page. The `login` event:
+
 1. Reads `user` and `pass` (room name) form fields via `nitro:q/1`.
-2. Issues a session token via `session_token:issue/2`.
+2. Issues a session token via `rtp_token:issue/2`.
 3. Stores user and token in the N2O session.
 4. Writes `localStorage.setItem('rtp_joined', 'true')` via `nitro:wire/1`.
 5. Redirects to `/app/index.htm?room=<room>&user=<user>&token=<token>`.
 
-### 3.11 Index Page — `index.erl`
+### 3.11 Index Page — `rtp_room.erl`
 
 N2O Nitro page serving the conference room interface. The `init` event:
+
 1. Validates the session token from URL params or session store.
 2. Registers the process on the room topic (`n2o:reg({topic, Room})`).
 3. Renders the logout button, room heading, chat send button, upload widget, and
    terminate button.
-4. Calls `room_coordinator:ensure_started/1` and `room_coordinator:join/2`.
+4. Calls `rtp_coordinator:ensure_started/1` and `rtp_coordinator:join/2`.
 5. Loads chat history from Mnesia and renders message elements.
 6. Renders the active participants list via injected JavaScript.
 7. Broadcasts `{member_joined, User}` to the room topic.
@@ -510,13 +536,13 @@ The login page issues a 3-minute session token and redirects to the conference p
 |---|---|---|
 | H.264 | Active video codec (AVC) | `x264enc` in `gst.c` (WebRTC + HLS) |
 | H.265 | High-efficiency video codec (HEVC) | `x265enc` in `gst.c` (HEVC HLS pipeline) |
-| H.323 | Packet multimedia systems | `room_coordinator` architecture mirrors H.323 MCU |
+| H.323 | Packet multimedia systems | `rtp_coordinator` architecture mirrors H.323 MCU |
 | H.235.8 | SRTP key exchange via secure signaling | DTLS-SRTP negotiated by `webrtcbin` |
-| H.239 | Role management (participant/presenter) | `role` field in `n2o_signaling` state |
+| H.239 | Role management (participant/presenter) | `role` field in `rtp_signaling` state |
 | H.245 | Control protocol for multimedia | SDP in WebRTC (RFC 8866 / RFC 3264) |
 | G.711 | PCM 64 kbit/s | WebRTC baseline audio |
 | G.722 | 7 kHz wideband | WebRTC HD voice |
-| T.124 | Generic conference control | `room_coordinator` gen_server |
+| T.124 | Generic conference control | `rtp_coordinator` gen_server |
 | X.601 | Multi-peer communications framework | N2O WebSocket + Syn room scope |
 | X.603 | Relayed multicast protocol | Erlang Port IPC (stdin/stdout relay) |
 

@@ -1,7 +1,6 @@
 -module(rtp_coordinator).
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
-
 -include_lib("n2o/include/n2o.hrl").
 
 %% API

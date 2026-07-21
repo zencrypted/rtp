@@ -144,9 +144,9 @@ Figure~\ref{fig:topology} shows the physical and logical entities, protocols, an
     % Left col: GStreamer (y=0.0) / eturnal (y=−1.5)
     % Right col: N2O (y=0.0)      / Coord   (y=−1.5)
 
-    \node[block] (gst)     at (0.58,  0.37) {GStreamer \\ (gst)};
+    \node[block] (gst)     at (0.58,  0.37) {Broker \\ (gst)};
     \node[block] (eturnal) at (1.59, -1.16) {TURN \\ (Port 3478)};
-    \node[block] (n2o)     at (6.02, -0.07) {N2O \\ (Port 8081)};
+    \node[block] (n2o)     at (6.02, -0.07) {Signaling \\ (Port 8081)};
     \node[block] (coord)   at (4.89, -1.9)  {Coordinator \\ (GenServer)};
     \draw[dashed, gray!50, line width=1pt, rounded corners=6pt] (-2.02, -2.6) rectangle (8.31, 1.1);
     \node[anchor=north east, font=\footnotesize\bfseries\color{gray!70}] (node2) at (4.79, 0.92) {erp-rtp};
@@ -266,10 +266,10 @@ architecture of the Erlang source modules located in \texttt{src/}:
     % Supervision Tree Nodes
     \node (app) [sup] {\texttt{rtp\_app} \\ (Application)};
     \node (sup) [sup, below=of app] {\texttt{rtp\_sup} \\ (Supervisor)};
-    \node (mnesia) [worker, below left=of sup, xshift=-0.5cm] {\texttt{mnesia\_srv} \\ (gen\_server)};
-    \node (broker) [worker, below right=of sup, xshift=0.5cm] {\texttt{media\_broker\_srv} \\ (gen\_server)};
-    \node (gst) [port, below=of broker] {\texttt{gst\_recorder} \\ (OS Port)};
-    \node (coord) [worker, below=of sup] {\texttt{room\_coordinator} \\ (gen\_server)};
+    \node (mnesia) [worker, below left=of sup, xshift=-0.5cm] {\texttt{rtp\_store} \\ (gen\_server)};
+    \node (broker) [worker, below right=of sup, xshift=0.5cm] {\texttt{rtp\_broker} \\ (gen\_server)};
+    \node (gst) [port, below=of broker] {\texttt{gst} \\ (OS Port)};
+    \node (coord) [worker, below=of sup] {\texttt{rtp\_coordinator} \\ (gen\_server)};
 
     % Connections
     \draw[arrow] (app) -- (sup);

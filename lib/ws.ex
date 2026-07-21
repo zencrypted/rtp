@@ -20,10 +20,10 @@ defmodule Rtp.WS do
 
   # WebRTC signaling WebSocket upgrade
   get "/ws/signaling" do
-    conn = Plug.Conn.fetch_query_params(conn)
-    user = Map.get(conn.query_params, "user", "Anonymous")
-    room = Map.get(conn.query_params, "room", "default")
-    role = Map.get(conn.query_params, "role", "participant")
+    conn  = Plug.Conn.fetch_query_params(conn)
+    user  = Map.get(conn.query_params, "user", "Anonymous")
+    room  = Map.get(conn.query_params, "room", "default")
+    role  = Map.get(conn.query_params, "role", "participant")
     token = Map.get(conn.query_params, "token", "")
     conn
     |> WebSockAdapter.upgrade(:rtp_signaling, {user, room, role, token}, timeout: 30_000)

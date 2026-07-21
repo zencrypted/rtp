@@ -1,12 +1,9 @@
 # GStreamer WebRTC MCU Media Compositor
 
-This document provides an academically rigorous specification of the GStreamer-based
-Multipoint Control Unit (MCU) implemented in `c_src/gst.c`. It defines the pipeline
-architecture, data structures, dynamic peer lifecycle, inter-process communication
-protocol, output multiplexing strategies, and architectural invariants of the
-production C99 compositor binary `priv/gst`.
-
----
+This document provides a specification of the GStreamer-based Multipoint Control Unit (MCU)
+implemented in `c_src/gst.c`. It defines the pipeline architecture, data structures,
+dynamic peer lifecycle, inter-process communication protocol, output multiplexing strategies,
+and architectural invariants of the production C99 compositor binary `priv/gst`.
 
 ## 1. Overview
 
@@ -27,8 +24,6 @@ The binary is spawned as a supervised OS port process by the Erlang
 `media_broker_srv` gen_server. All signaling is exchanged as newline-delimited
 JSON over UNIX standard I/O pipes, making the media plane fully decoupled from
 the Erlang control plane.
-
----
 
 ## 2. Data Structures
 
@@ -74,8 +69,6 @@ typedef struct {
 `RecorderState` is a process-global singleton. References to the four permanent
 pipeline elements are resolved by name after `gst_parse_launch()` and cached
 for O(1) dynamic peer attachment.
-
----
 
 ## 3. Static Pipeline Topology
 
@@ -138,8 +131,6 @@ A live black `videotestsrc` on `mix.sink_0` (zorder=1) and a silent `audiotestsr
 on `amix.sink_0` are permanently active. They prevent scheduler stalls when no peers
 are connected and allow dynamic peer sources to preroll instantaneously.
 
----
-
 ## 4. Dynamic Peer Lifecycle
 
 ### 4.1 Peer Join — `setup_peer(peer_id)`
@@ -193,8 +184,6 @@ g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
 | 5 | NULL webrtcbin; remove from pipeline |
 | 6 | Free grid slot; remove from webrtcbins hash table |
 
----
-
 ## 5. Signaling Protocol (Port IPC)
 
 Newline-delimited JSON over UNIX stdio. Stdin messages are processed synchronously
@@ -217,8 +206,6 @@ on the GLib main loop via `g_io_add_watch`, serializing all pipeline mutations.
 | `sdp_offer` | `peer_id`, `sdp` | Forwarded by broker to browser via Syn |
 | `ice_candidate` | `peer_id`, `candidate` | Forwarded to browser |
 | `recording_started` | — | Pipeline reached PLAYING state |
-
----
 
 ## 6. Output Delivery Nuances
 
@@ -243,8 +230,6 @@ enabling progressive download and crash-resilient playback without a terminal `m
 `raw_vtee` drives separate `x264enc` (WebRTC) and `x265enc` (HLS) encoder chains,
 providing H.265 fidelity for capable clients without breaking WebRTC compatibility.
 
----
-
 ## 7. Signal Handling and Graceful Shutdown
 
 ```c
@@ -257,8 +242,6 @@ if (mux) {
 ```
 
 The muxer finalizes index structures before the loop quits on bus EOS.
-
----
 
 ## 8. Build and Evaluation
 
@@ -293,8 +276,6 @@ iex -S mix
 
 **Chrome**: `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`
 **Safari**: Develop -> WebRTC -> Use Mock Capture Devices
-
----
 
 ## 9. Architectural Invariants
 

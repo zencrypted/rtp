@@ -14,7 +14,7 @@ defmodule Rtp.WS do
       _           -> :login
     end
     conn
-    |> WebSockAdapter.upgrade(Rtp.N2OSocket, [module: target_mod], timeout: 60_000)
+    |> WebSockAdapter.upgrade(Rtp.N2O, [module: target_mod], timeout: 30_000)
     |> halt()
   end
 
@@ -26,11 +26,12 @@ defmodule Rtp.WS do
     role = Map.get(conn.query_params, "role", "participant")
     token = Map.get(conn.query_params, "token", "")
     conn
-    |> WebSockAdapter.upgrade(:n2o_signaling, {user, room, role, token}, timeout: 60_000)
+    |> WebSockAdapter.upgrade(:n2o_signaling, {user, room, role, token}, timeout: 30_000)
     |> halt()
   end
 
   match _ do
     send_resp(conn, 404, "not found")
   end
+
 end

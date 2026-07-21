@@ -31,21 +31,21 @@ into a single cohesive Erlang/OTP application.
 │       │   └── cast.js          # HLS broadcast viewer: hls.js player, retro/live seek, telemetry
 │       └── css/
 │           ├── blank.css        # Base Synrc CSS Layer
-│           └── color.css        # Custom Synrc CSSCLayer
+│           └── color.css        # Custom Synrc CSS Layer
 ├── lib/
-│   └── rtp/
-│       ├── live_stream.ex       # HTTP Live Streaming handler — strips ETag, forces no-store
-│       ├── n2o_socket.ex        # N2O Bandit WebSocket proxy
-│       ├── static.ex            # Plug.Static asset server (port 8081)
-│       └── ws.ex                # WebSocket server (port 8001) — routes to n2o_signaling
+│   ├── hls.ex                   # HTTP Live Streaming handler — strips ETag, forces no-store
+│   ├── n2o.ex                   # RTP.N2O <-> Bandit WebSocket proxy
+│   ├── static.ex                # Plug.Static asset server (port 8081) - routes to RTP.N2O
+│   └── ws.ex                    # WebSocket server (port 8001) — routes to n2o_signaling
 ├── src/
-│   ├── index.erl                # N2O Nitro page: room chat history, member list, file upload
-│   ├── login.erl                # N2O Nitro page: session token issuance and redirect
-│   ├── media_broker_srv.erl     # gen_server: GStreamer port lifecycle and Port IPC bridge
-│   ├── mnesia_srv.erl           # gen_server: Mnesia schema init, per-room chat tables
-│   ├── n2o_signaling.erl        # WebSock handler: SDP/ICE signaling, peer registration
-│   ├── room_coordinator.erl     # gen_server: room state, participant presence, media delegation
-│   ├── routes.erl               # N2O URL router: /app/index.htm → index, /app/login.htm → login
+│   ├── rtp_p2p.erl              # N2O Nitro page: p2p chat history, file upload
+│   ├── rtp_muc.erl              # N2O Nitro page: room chat history, member list, file upload
+│   ├── rtp_login.erl            # N2O Nitro page: session token issuance and redirect
+│   ├── rtp_media_broker_srv.erl # gen_server: GStreamer port lifecycle and Port IPC bridge
+│   ├── rtp_mnesia_srv.erl       # gen_server: Mnesia schema init, per-room chat tables
+│   ├── rtp_signaling.erl        # WebSock handler: SDP/ICE signaling, peer registration
+│   ├── rtp_coordinator.erl      # gen_server: room state, participant presence, media delegation
+│   ├── rtp_routes.erl           # N2O URL router: /app/index.htm → index, /app/login.htm → login
 │   ├── rtp_app.erl              # OTP Application: listeners, Syn scopes, session table, banner
 │   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): mnesia_srv worker
 │   ├── rtp_syn.erl              # N2O MQ backend: wraps Syn v3 pub/sub as N2O pool registry
@@ -54,6 +54,8 @@ into a single cohesive Erlang/OTP application.
 ├── mix.exs                      # Elixir package manager (Hex dependencies)
 ├── rebar.config                 # Rebar3 build configuration
 ├── GST.md                       # GStreamer MCU compositor specification
+├── README.md                    # SYNRC RTP Erlang/OTP application passport
+├── index.html                   # HTML version of RTP passport
 ├── gst-nuttx.pdf                # GStreamer MCU port to NuttX RTOS (article)
 └── rtp.pdf                      # RTP MCU Gateway article (LaTeX)
 ```

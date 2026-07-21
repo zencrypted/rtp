@@ -1,4 +1,4 @@
--record(session_token, {
+-record(rtp_token, {
     token :: binary(),        % unique session token
     user :: binary(),         % username
     room :: binary(),         % room name

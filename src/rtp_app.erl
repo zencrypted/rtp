@@ -9,14 +9,14 @@ start(_StartType, _StartArgs) ->
     % Configure N2O programmatically to work with both rebar3 and mix
     application:set_env(n2o, port, 8001),
     application:set_env(n2o, protocols, [nitro_n2o, n2o_heart]),
-    application:set_env(n2o, routes, routes),
+    application:set_env(n2o, routes, rtp_routes),
     application:set_env(n2o, mq, rtp_syn),
 
     % 1. Initialize KVS schema bindings
     kvs:join(),
 
     % Initialize session tokens ETS table
-    session_token:init_table(),
+    rtp_token:init_table(),
 
     % 2. Initialize Syn registry rooms scope
     ok = syn:add_node_to_scopes([rooms, n2o_mq]),

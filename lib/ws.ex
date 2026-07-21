@@ -7,11 +7,11 @@ defmodule Rtp.WS do
   # N2O app WebSocket upgrade
   get "/ws/app/:mod" do
     target_mod = case mod do
-      "login.htm" -> :login
-      "login"     -> :login
-      "index.htm" -> :index
-      "index"     -> :index
-      _           -> :login
+      "login.htm" -> :rtp_login
+      "login"     -> :rtp_login
+      "index.htm" -> :rtp_room
+      "index"     -> :rtp_room
+      _           -> :rtp_login
     end
     conn
     |> WebSockAdapter.upgrade(Rtp.N2O, [module: target_mod], timeout: 30_000)
@@ -26,7 +26,7 @@ defmodule Rtp.WS do
     role = Map.get(conn.query_params, "role", "participant")
     token = Map.get(conn.query_params, "token", "")
     conn
-    |> WebSockAdapter.upgrade(:n2o_signaling, {user, room, role, token}, timeout: 30_000)
+    |> WebSockAdapter.upgrade(:rtp_signaling, {user, room, role, token}, timeout: 30_000)
     |> halt()
   end
 

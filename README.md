@@ -14,7 +14,7 @@ into a single cohesive Erlang/OTP application.
 ├── c_src/
 │   └── gst.c                    # GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── session_token.hrl        # session_token record: token, user, room, device, expiry
+│   └── rtp_token.hrl            # session_token record: token, user, room, device, expiry
 ├── config/
 │   ├── config.exs               # Elixir/OTP application environment
 │   ├── sys.config               # Mnesia dir, N2O parameters, port bindings
@@ -38,11 +38,11 @@ into a single cohesive Erlang/OTP application.
 │   ├── static.ex                # Plug.Static asset server (port 8081) - routes to RTP.N2O
 │   └── ws.ex                    # WebSocket server (port 8001) — routes to n2o_signaling
 ├── src/
-│   ├── rtp_p2p.erl              # N2O Nitro page: p2p chat history, file upload
-│   ├── rtp_muc.erl              # N2O Nitro page: room chat history, member list, file upload
+│   ├── rtp_private.erl          # N2O Nitro page: p2p chat history, file upload
+│   ├── rtp_room.erl             # N2O Nitro page: room chat history, member list, file upload
 │   ├── rtp_login.erl            # N2O Nitro page: session token issuance and redirect
-│   ├── rtp_media_broker_srv.erl # gen_server: GStreamer port lifecycle and Port IPC bridge
-│   ├── rtp_mnesia_srv.erl       # gen_server: Mnesia schema init, per-room chat tables
+│   ├── rtp_broker.erl           # gen_server: GStreamer port lifecycle and Port IPC bridge
+│   ├── rtp_store.erl            # gen_server: Mnesia schema init, per-room chat tables
 │   ├── rtp_signaling.erl        # WebSock handler: SDP/ICE signaling, peer registration
 │   ├── rtp_coordinator.erl      # gen_server: room state, participant presence, media delegation
 │   ├── rtp_routes.erl           # N2O URL router: /app/index.htm → index, /app/login.htm → login
@@ -50,7 +50,7 @@ into a single cohesive Erlang/OTP application.
 │   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): mnesia_srv worker
 │   ├── rtp_syn.erl              # N2O MQ backend: wraps Syn v3 pub/sub as N2O pool registry
 │   ├── rtp.app.src              # Application descriptor and dependency list
-│   └── session_token.erl        # ETS-backed session token: issue, validate, update_device
+│   └── rtp_token.erl            # ETS-backed session token: issue, validate, update_device
 ├── mix.exs                      # Elixir package manager (Hex dependencies)
 ├── rebar.config                 # Rebar3 build configuration
 ├── GST.md                       # GStreamer MCU compositor specification

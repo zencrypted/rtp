@@ -1,4 +1,4 @@
--module(routes).
+-module(rtp_routes).
 -include_lib("n2o/include/n2o.hrl").
 -export([init/2, finish/2]).
 
@@ -15,12 +15,12 @@ init(State, #cx{req = Req} = Cx) ->
     {ok, State, Cx#cx{path = Path, module = Module}}.
 
 route_prefix(<<"/ws/", P/binary>>) -> route(P);
-route_prefix(<<"/", P/binary>>) -> route(P);
-route_prefix(P) -> route(P).
+route_prefix(<<"/", P/binary>>)    -> route(P);
+route_prefix(P)                    -> route(P).
 
-route(<<>>) -> login;
-route(<<"index", _/binary>>) -> index;
-route(<<"login", _/binary>>) -> login;
-route(<<"app/index", _/binary>>) -> index;
-route(<<"app/login", _/binary>>) -> login;
-route(_) -> login.
+route(<<>>)                        -> rtp_login;
+route(<<"index", _/binary>>)       -> rtp_room;
+route(<<"login", _/binary>>)       -> rtp_login;
+route(<<"app/index", _/binary>>)   -> rtp_room;
+route(<<"app/login", _/binary>>)   -> rtp_login;
+route(_)                           -> rtp_login.

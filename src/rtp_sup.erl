@@ -14,12 +14,12 @@ init([]) ->
     },
     ChildSpecs = [
         #{
-            id => mnesia_srv,
-            start => {mnesia_srv, start_link, []},
+            id => rtp_store,
+            start => {rtp_store, start_link, []},
             restart => permanent,
             shutdown => 2000,
             type => worker,
-            modules => [mnesia_srv]
+            modules => [rtp_store]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

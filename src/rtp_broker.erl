@@ -1,20 +1,17 @@
--module(media_broker_srv).
+-module(rtp_broker).
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
 -include_lib("n2o/include/n2o.hrl").
 
-%% API
 -export([start_link/0, peer_joined/4, sdp_answer/4, ice_candidate/4, peer_left/3, terminate_room/2, recording_path/1]).
-
-%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
-    ports = #{},       % RoomId :: binary() -> Port :: port()
-    room_peers = #{},  % RoomId :: binary() -> [PeerId :: binary()]
-    peer_rooms = #{},   % PeerId :: binary() -> RoomId :: binary()
+    ports = #{},           % RoomId :: binary() -> Port :: port()
+    room_peers = #{},      % RoomId :: binary() -> [PeerId :: binary()]
+    peer_rooms = #{},      % PeerId :: binary() -> RoomId :: binary()
     room_started_at = #{}, % RoomId :: binary() -> Timestamp :: integer()
-    monitors = #{}     % MonitorRef :: reference() -> {RoomId, PeerId}
+    monitors = #{}         % MonitorRef :: reference() -> {RoomId, PeerId}
 }).
 
 %% API Functions
@@ -90,32 +87,32 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
             ]),
             {P, maps:put(RoomId, P, State#state.ports), Now, maps:put(RoomId, Now, State#state.room_started_at)}
     end,
-    
+
     send_to_port(Port, #{
         <<"type">> => <<"peer_joined">>,
         <<"peer_id">> => PeerId
     }),
-    
+
     Ref = monitor(process, ClientPid),
     NewMonitors = maps:put(Ref, {RoomId, PeerId}, State#state.monitors),
-    
+
     Peers = maps:get(RoomId, State#state.room_peers, []),
     NewRoomPeers = maps:put(RoomId, [PeerId | Peers], State#state.room_peers),
     NewPeerRooms = maps:put(PeerId, RoomId, State#state.peer_rooms),
-    
+
     lists:foreach(fun(PidPeer) ->
         case syn:lookup(rooms, PidPeer) of
             {Pid, _} -> Pid ! {peer_joined, PeerId};
             undefined -> ok
         end
     end, Peers),
-    
+
     PlaylistPath = recording_path(RoomId),
     Status = case filelib:is_regular(PlaylistPath) of
         true -> ok;
         false -> pending
     end,
-    
+
     {reply, {Status, StartedAt}, State#state{
         ports = NewPorts,
         room_peers = NewRoomPeers,
@@ -222,7 +219,7 @@ handle_info({'EXIT', From, Reason}, State) ->
         true ->
             {noreply, State};
         false ->
-            error_logger:info_msg("media_broker_srv parent exited: ~p (~p). Terminating.~n", [From, Reason]),
+            error_logger:info_msg("rtp_broker parent exited: ~p (~p). Terminating.~n", [From, Reason]),
             {stop, Reason, State}
     end;
 
@@ -233,7 +230,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State) ->
             Peers = maps:get(RoomId, State#state.room_peers, []),
             case lists:member(PeerId, Peers) of
                 true ->
-                    error_logger:info_msg("media_broker_srv: Peer ~s process died. Cleaning up.~n", [PeerId]),
+                    error_logger:info_msg("rtp_broker: Peer ~s process died. Cleaning up.~n", [PeerId]),
                     State1 = handle_peer_departure(RoomId, PeerId, State),
                     {noreply, State1#state{monitors = NewMonitors}};
                 false ->
@@ -305,14 +302,14 @@ handle_peer_departure(RoomId, PeerId, State) ->
             Peers = maps:get(RoomId, State#state.room_peers, []),
             NewPeers = lists:delete(PeerId, Peers),
             NewPeerRooms = maps:remove(PeerId, State#state.peer_rooms),
-            
+
             lists:foreach(fun(PidPeer) ->
                 case syn:lookup(rooms, PidPeer) of
                     {Pid, _} -> Pid ! {peer_left, PeerId};
                     undefined -> ok
                 end
             end, NewPeers),
-            
+
             case NewPeers of
                 [] ->
                     error_logger:info_msg("Last peer left room ~s. Closing GStreamer port.~n", [RoomId]),
@@ -347,10 +344,7 @@ find_binary() ->
         case code:priv_dir(rtp) of
             {error, bad_name} -> "./priv/gst";
             D -> filename:join(D, "gst")
-        end,
-        "./priv/gst",
-        "../priv/gst",
-        "../../priv/gst"
+        end
     ],
     find_existing_path(Paths).
 

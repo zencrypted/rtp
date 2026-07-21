@@ -13,6 +13,6 @@ defmodule Rtp.N2O do
   def response({:reply, {:text,   r}, _, s}), do: {:reply, :ok, {:text, r}, s}
   def response({:reply, {:bert,   r}, _, s}), do: {:reply, :ok, {:binary, :n2o_bert.encode(r)}, s}
   def response({:ok, s}),                     do: {:ok, s}
-  def response(other)                         do {:ok, elem(other, tuple_size(other) - 1)} end
+  def response(other),                        do: {:ok, elem(other, tuple_size(other) - 1)}
 
 end

@@ -1,4 +1,4 @@
--module(mnesia_srv).
+-module(rtp_store).
 -behaviour(gen_server).
 
 %% API

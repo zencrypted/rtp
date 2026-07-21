@@ -1,11 +1,11 @@
--module(session_token).
+-module(rtp_token).
 -export([init_table/0, issue/2, validate/1, update_device/2]).
--include("session_token.hrl").
+-include("rtp_token.hrl").
 
 init_table() ->
-    case ets:info(session_tokens) of
+    case ets:info(rtp_tokens) of
         undefined ->
-            ets:new(session_tokens, [set, public, named_table, {keypos, #session_token.token}]);
+            ets:new(rtp_tokens, [set, public, named_table, {keypos, #rtp_token.token}]);
         _ ->
             ok
     end.
@@ -15,25 +15,25 @@ issue(User, Room) ->
     Token = n2o_secret:sid(os:timestamp()),
     Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
     Expiry = Now + 180, % 3 minutes (180 seconds)
-    Record = #session_token{
+    Record = #rtp_token{
         token = Token,
         user = case is_binary(User) of true -> User; false -> list_to_binary(User) end,
         room = case is_binary(Room) of true -> Room; false -> list_to_binary(Room) end,
         device = undefined,
         expiry = Expiry
     },
-    ets:insert(session_tokens, Record),
+    ets:insert(rtp_tokens, Record),
     Token.
 
 validate(Token) ->
     init_table(),
     Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-    case ets:lookup(session_tokens, Token) of
-        [#session_token{expiry = Expiry} = ST] when Expiry >= Now ->
+    case ets:lookup(rtp_tokens, Token) of
+        [#rtp_token{expiry = Expiry} = ST] when Expiry >= Now ->
             {ok, ST};
-        [#session_token{token = T}] ->
+        [#rtp_token{token = T}] ->
             %% Expired
-            ets:delete(session_tokens, T),
+            ets:delete(rtp_tokens, T),
             {error, expired};
         [] ->
             {error, not_found}
@@ -41,10 +41,10 @@ validate(Token) ->
 
 update_device(Token, Device) ->
     init_table(),
-    case ets:lookup(session_tokens, Token) of
+    case ets:lookup(rtp_tokens, Token) of
         [ST] ->
-            NewST = ST#session_token{device = case is_binary(Device) of true -> Device; false -> list_to_binary(Device) end},
-            ets:insert(session_tokens, NewST),
+            NewST = ST#rtp_token{device = case is_binary(Device) of true -> Device; false -> list_to_binary(Device) end},
+            ets:insert(rtp_tokens, NewST),
             ok;
         [] ->
             {error, not_found}

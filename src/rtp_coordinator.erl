@@ -1,4 +1,4 @@
--module(room_coordinator).
+-module(rtp_coordinator).
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
 
@@ -82,7 +82,7 @@ get_state(RoomPid) ->
 init([RoomId]) ->
     case syn:register(rooms, RoomId, self()) of
         ok ->
-            ok = mnesia_srv:create_room_table(RoomId),
+            ok = rtp_store:create_room_table(RoomId),
             {ok, #state{room_id = RoomId}};
         {error, taken} ->
             {stop, already_exists}
@@ -103,7 +103,7 @@ handle_call({leave, ParticipantId}, _From, State) ->
 
 handle_call({chat, Sender, Message}, _From, State) ->
     Timestamp = erlang:system_time(millisecond),
-    ok = mnesia_srv:save_message_to_room(State#state.room_id, Sender, Message, Timestamp),
+    ok = rtp_store:save_message_to_room(State#state.room_id, Sender, Message, Timestamp),
     Msg = {'$msg', kvs:seq([], []), [], [], Sender, Message},
     n2o:send({topic, State#state.room_id}, #client{data = Msg}),
     {reply, ok, State};
@@ -111,32 +111,32 @@ handle_call({chat, Sender, Message}, _From, State) ->
 handle_call({originate_video, PeerId, ClientPid}, _From, State) ->
     {NewState, BrokerPid} = case State#state.media_broker of
         undefined ->
-            {ok, Pid} = media_broker_srv:start_link(),
+            {ok, Pid} = rtp_broker:start_link(),
             {State#state{media_broker = Pid}, Pid};
         Pid ->
             {State, Pid}
     end,
-    {Status, StartedAt} = media_broker_srv:peer_joined(BrokerPid, State#state.room_id, PeerId, ClientPid),
+    {Status, StartedAt} = rtp_broker:peer_joined(BrokerPid, State#state.room_id, PeerId, ClientPid),
     {reply, {Status, StartedAt}, NewState};
 
 handle_call({sdp_answer, PeerId, Sdp}, _From, State) ->
     case State#state.media_broker of
         undefined -> ok;
-        BrokerPid -> media_broker_srv:sdp_answer(BrokerPid, State#state.room_id, PeerId, Sdp)
+        BrokerPid -> rtp_broker:sdp_answer(BrokerPid, State#state.room_id, PeerId, Sdp)
     end,
     {reply, ok, State};
 
 handle_call({ice_candidate, PeerId, Candidate}, _From, State) ->
     case State#state.media_broker of
         undefined -> ok;
-        BrokerPid -> media_broker_srv:ice_candidate(BrokerPid, State#state.room_id, PeerId, Candidate)
+        BrokerPid -> rtp_broker:ice_candidate(BrokerPid, State#state.room_id, PeerId, Candidate)
     end,
     {reply, ok, State};
 
 handle_call({peer_left, PeerId}, _From, State) ->
     case State#state.media_broker of
         undefined -> ok;
-        BrokerPid -> media_broker_srv:peer_left(BrokerPid, State#state.room_id, PeerId)
+        BrokerPid -> rtp_broker:peer_left(BrokerPid, State#state.room_id, PeerId)
     end,
     {reply, ok, State};
 
@@ -161,7 +161,7 @@ handle_call(terminate_room, _From, State) ->
         undefined ->
             {reply, {error, not_found}, State};
         BrokerPid ->
-            Res = media_broker_srv:terminate_room(BrokerPid, State#state.room_id),
+            Res = rtp_broker:terminate_room(BrokerPid, State#state.room_id),
             catch gen_server:stop(BrokerPid),
             {reply, Res, State#state{media_broker = undefined}}
     end;

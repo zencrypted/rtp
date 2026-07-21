@@ -1,8 +1,8 @@
--module(login).
+-module(rtp_login).
 -export([event/1]).
 -include_lib("nitro/include/nitro.hrl").
 -include_lib("n2o/include/n2o.hrl").
--include("session_token.hrl").
+-include("rtp_token.hrl").
 
 event(init) ->
     error_logger:info_msg("login:event(init) called!~n"),
@@ -12,7 +12,7 @@ event(init) ->
 event(login) ->
     User = nitro:to_list(nitro:q(user)),
     Room = nitro:to_list(nitro:q(pass)),
-    Token = session_token:issue(User, Room),
+    Token = rtp_token:issue(User, Room),
     n2o:user(User),
     n2o:session(room, Room),
     n2o:session(token, Token),

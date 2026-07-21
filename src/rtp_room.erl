@@ -1,8 +1,8 @@
--module(index).
+-module(rtp_room).
 -export([event/1, jse/1]).
 -include_lib("nitro/include/nitro.hrl").
 -include_lib("n2o/include/n2o.hrl").
--include("session_token.hrl").
+-include("rtp_token.hrl").
 
 event(init) ->
     Req = (get(context))#cx.req,
@@ -19,8 +19,8 @@ event(init) ->
             end;
         T -> T
     end,
-    case session_token:validate(Token) of
-        {ok, #session_token{user = UserBin, room = RoomBin}} ->
+    case rtp_token:validate(Token) of
+        {ok, #rtp_token{user = UserBin, room = RoomBin}} ->
             Room = binary_to_list(RoomBin),
             User = binary_to_list(UserBin),
             n2o:session(room, Room),
@@ -37,23 +37,23 @@ event(init) ->
                                             postback = chat, source = [message]}),
             nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>,
                                             postback = terminate_room, class = <<"btn-danger">>}),
-            RecPath = media_broker_srv:recording_path(RoomBin),
+            RecPath = rtp_broker:recording_path(RoomBin),
             nitro:update(recording_info, #span{id = recording_info,
                                                body = [<<"📹 ">>, RecPath]}),
-            
+
             %% Ensure room coordinator is started (which creates the Mnesia table)
-            {ok, RoomPid} = room_coordinator:ensure_started(Room),
+            {ok, RoomPid} = rtp_coordinator:ensure_started(Room),
 
             %% Join room coordinator list of participants
-            {ok, _} = room_coordinator:join(RoomPid, #{id => list_to_binary(User), pid => self()}),
+            {ok, _} = rtp_coordinator:join(RoomPid, #{id => list_to_binary(User), pid => self()}),
 
             %% Fetch room-specific history
-            {ok, History} = mnesia_srv:get_messages_from_room(Room),
+            {ok, History} = rtp_store:get_messages_from_room(Room),
             [ nitro:insert_top(history, nitro:render(#message{body = [#author{body = MapUser}, MapMsg]}))
               || #{sender := MapUser, text := MapMsg} <- History ],
 
             %% Draw active members list
-            Participants = room_coordinator:active_participants(RoomPid),
+            Participants = rtp_coordinator:active_participants(RoomPid),
             [ begin
                   UserStr = binary_to_list(maps:get(id, P)),
                   EscId   = "member-" ++ re:replace(UserStr, "[^a-zA-Z0-9]", "-", [global, {return, list}]),
@@ -75,18 +75,18 @@ event(init) ->
     end;
 
 event(logout) ->
-    Room = n2o:session(room),
-    User = n2o:user(),
+    Room  = n2o:session(room),
+    User  = n2o:user(),
     Token = n2o:session(token),
     case Token of
         undefined -> ok;
-        _ -> ets:delete(session_tokens, Token)
+        _ -> ets:delete(rtp_tokens, Token)
     end,
     case Room of
         undefined -> ok;
         _ ->
-            {ok, RoomPid} = room_coordinator:ensure_started(Room),
-            ok = room_coordinator:leave(RoomPid, list_to_binary(User)),
+            {ok, RoomPid} = rtp_coordinator:ensure_started(Room),
+            ok = rtp_coordinator:leave(RoomPid, list_to_binary(User)),
             n2o:send({topic, Room}, #client{data = {member_left, User}})
     end,
     n2o:user([]),
@@ -97,8 +97,8 @@ event(chat) -> chat(nitro:q(message), nitro);
 
 event(terminate_room) ->
     Room = n2o:session(room),
-    {ok, RoomPid} = room_coordinator:ensure_started(Room),
-    case room_coordinator:terminate_room(RoomPid) of
+    {ok, RoomPid} = rtp_coordinator:ensure_started(Room),
+    case rtp_coordinator:terminate_room(RoomPid) of
         {ok, Path} ->
             nitro:update(recording_info,
                 #span{id = recording_info, body = [<<"✅ Saved: ">>, Path]}),
@@ -144,8 +144,8 @@ event(terminate) ->
     User = n2o:user(),
     case {Room, User} of
         {R, U} when R =/= undefined andalso R =/= [] andalso U =/= undefined andalso U =/= [] ->
-            {ok, RoomPid} = room_coordinator:ensure_started(R),
-            ok = room_coordinator:leave(RoomPid, list_to_binary(U)),
+            {ok, RoomPid} = rtp_coordinator:ensure_started(R),
+            ok = rtp_coordinator:leave(RoomPid, list_to_binary(U)),
             n2o:send({topic, R}, #client{data = {member_left, U}});
         _ ->
             ok
@@ -158,5 +158,5 @@ jse(X) -> X.
 chat(Message, F) ->
     Room = n2o:session(room),
     User = n2o:user(),
-    {ok, RoomPid} = room_coordinator:ensure_started(Room),
-    room_coordinator:post_chat(RoomPid, User, F:jse(Message)).
+    {ok, RoomPid} = rtp_coordinator:ensure_started(Room),
+    rtp_coordinator:post_chat(RoomPid, User, F:jse(Message)).

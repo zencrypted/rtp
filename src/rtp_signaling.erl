@@ -1,4 +1,4 @@
--module(n2o_signaling).
+-module(rtp_signaling).
 -behaviour('Elixir.WebSock').
 
 -export([init/1, handle_in/2, handle_info/2, terminate/2]).
@@ -13,11 +13,11 @@
 
 init({UserId, RoomId, Role, Token}) ->
     PeerId = <<"peer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
-    {ok, RoomPid} = room_coordinator:ensure_started(RoomId),
+    {ok, RoomPid} = rtp_coordinator:ensure_started(RoomId),
     case Token of
         undefined -> ok;
         <<>> -> ok;
-        _ -> session_token:update_device(Token, PeerId)
+        _ -> rtp_token:update_device(Token, PeerId)
     end,
     State = #state{
         user_id = UserId,
@@ -40,7 +40,7 @@ handle_in({Msg, Opts} = Frame, State) ->
             PeerId = State#state.peer_id,
             case Type of
                 <<"ready">> ->
-                    case room_coordinator:originate_video(State#state.room_pid, PeerId, self()) of
+                    case rtp_coordinator:originate_video(State#state.room_pid, PeerId, self()) of
                         {ok, StartedAt} ->
                             self() ! {send_room_info, StartedAt};
                         {pending, _StartedAt} ->
@@ -58,9 +58,9 @@ handle_in({Msg, Opts} = Frame, State) ->
                 _ ->
                     case Data of
                         #{<<"sdp">> := #{<<"type">> := <<"answer">>, <<"sdp">> := Sdp}} ->
-                            room_coordinator:sdp_answer(State#state.room_pid, PeerId, Sdp);
+                            rtp_coordinator:sdp_answer(State#state.room_pid, PeerId, Sdp);
                         #{<<"candidate">> := Candidate} ->
-                            room_coordinator:ice_candidate(State#state.room_pid, PeerId, Candidate);
+                            rtp_coordinator:ice_candidate(State#state.room_pid, PeerId, Candidate);
                         _ ->
                             ok
                     end
@@ -120,6 +120,6 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State) ->
     PeerId = State#state.peer_id,
-    room_coordinator:peer_left(State#state.room_pid, PeerId),
+    rtp_coordinator:peer_left(State#state.room_pid, PeerId),
     syn:unregister(rooms, PeerId),
     ok.

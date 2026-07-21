@@ -251,7 +251,14 @@ The muxer finalizes index structures before the loop quits on bus EOS.
 brew install gstreamer libnice libnice-gstreamer json-glib
 ```
 
-### 8.2 Compile
+### 8.2 Dependencies (Ubuntu / WSL2)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libjson-glib-dev pkg-config
+```
+
+### 8.3 Compile
 
 ```bash
 cc -O3 c_src/gst.c -o priv/gst \
@@ -259,20 +266,20 @@ cc -O3 c_src/gst.c -o priv/gst \
     gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
 ```
 
-### 8.3 Standalone Test
+### 8.4 Standalone Test
 
 ```bash
 mkdir -p /tmp/rtp-test && ./priv/gst /tmp/rtp-test ts
 ```
 
-### 8.4 Launch via Erlang Node
+### 8.5 Launch via Erlang Node
 
 ```bash
 iex -S mix
 # http://localhost:8081/app/login.htm
 ```
 
-### 8.5 Mock Devices
+### 8.6 Mock Devices
 
 **Chrome**: `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`
 **Safari**: Develop -> WebRTC -> Use Mock Capture Devices

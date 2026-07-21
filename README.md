@@ -464,7 +464,14 @@ fallback to `./mnesia_data` for local development.
 brew install gstreamer libnice libnice-gstreamer json-glib erlang
 ```
 
-### 7.2 Compile the GStreamer Binary
+### 7.2 Prerequisites (Ubuntu / WSL2)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libjson-glib-dev pkg-config
+```
+
+### 7.3 Compile the GStreamer Binary
 
 ```bash
 cc -O3 c_src/gst.c -o priv/gst \
@@ -472,7 +479,7 @@ cc -O3 c_src/gst.c -o priv/gst \
     gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
 ```
 
-### 7.3 Start the Monolith
+### 7.4 Start the Monolith
 
 ```bash
 iex -S mix
@@ -492,7 +499,7 @@ Expected banner:
   RTP Codecs : Opus (Audio), VP8, VP9, H.264 (Video)
 ```
 
-### 7.4 Access the Interface
+### 7.5 Access the Interface
 
 Navigate to `http://localhost:8081/app/login.htm`. Enter a username and room name.
 The login page issues a 3-minute session token and redirects to the conference page.

@@ -99,36 +99,36 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
     <h3>Directory Blueprint</h3>
     <figure><code>
 ├── c_src/
-│   └── gst.c               GStreamer WebRTC MCU compositor — C99, 668 lines
+│   └── gst.c                 GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── rtp_token.hrl   rtp_token record: token, user, room, device, expiry
+│   └── rtp_token.hrl         rtp_token record: token, user, room, device, expiration
 ├── priv/
-│   ├── gst                 Compiled native C99 binary spawned by Erlang port
+│   ├── gst                   Compiled native C99 binary spawned by Erlang port
 │   └── static/
 │       ├── app/
-│       │   ├── index.htm   Conference participant page — WebRTC + N2O chat
-│       │   ├── bcast.htm   HLS broadcast viewer — passive observer
-│       │   └── login.htm   Session login page
+│       │   ├── index.htm     Conference participant page — WebRTC + N2O chat
+│       │   ├── bcast.htm     HLS broadcast viewer — passive observer
+│       │   └── login.htm     Session login page
 │       ├── js/
-│       │   ├── rtc.js      WebRTC client: peer connection, SDP/ICE, telemetry
-│       │   └── cast.js     HLS viewer: hls.js player, retro/live seek, telemetry
+│       │   ├── rtc.js        WebRTC client: peer connection, SDP/ICE, telemetry
+│       │   └── cast.js       HLS viewer: hls.js player, retro/live seek, telemetry
 │       └── css/
-│           ├── blank.css        # Base Synrc CSS Layer
-│           └── color.css        # Custom Synrc CSS Layer
+│           ├── blank.css     Base Synrc CSS Layer
+│           └── color.css     Custom Synrc CSS Layer
 ├── lib/rtp/
-│   ├── live_stream.ex      HTTP Live Streaming handler — strips ETag, no-store
-│   ├── n2o_socket.ex       N2O Bandit WebSocket proxy
-│   ├── static.ex           Plug.Static asset server — port 8081
-│   └── ws.ex               WebSocket server — port 8001 → rtp_signaling
+│   ├── live_stream.ex        HTTP Live Streaming handler — strips ETag, no-store
+│   ├── n2o_socket.ex         N2O Bandit WebSocket proxy
+│   ├── static.ex             Plug.Static asset server — port 8081
+│   └── ws.ex                 WebSocket server — port 8001 → rtp_signaling
 └── src/
-    ├── rtp_broker.erl  gen_server: GStreamer port lifecycle and Port IPC bridge
-    ├── rtp_store.erl        gen_server: Mnesia schema init, per-room chat tables
+    ├── rtp_broker.erl        gen_server: GStreamer port lifecycle and Port IPC bridge
+    ├── rtp_store.erl         gen_server: Mnesia schema init, per-room chat tables
     ├── rtp_signaling.erl     WebSock handler: SDP/ICE signaling, peer registration
-    ├── rtp_coordinator.erl  gen_server: room state, participants, media delegation
+    ├── rtp_coordinator.erl   gen_server: room state, participants, media delegation
     ├── rtp_app.erl           OTP Application: listeners, Syn scopes, session table
     ├── rtp_sup.erl           OTP Supervisor one_for_one: rtp_store worker
     ├── rtp_syn.erl           N2O MQ backend: Syn v3 pub/sub as N2O pool registry
-    └── rtp_token.erl     ETS-backed session token: issue, validate, update_device
+    └── rtp_token.erl         ETS-backed session token: issue, validate, update_device
     </code></figure>
   </section>
 

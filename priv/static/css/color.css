@@ -1,0 +1,88 @@
+:root { --bg-color: #0f121d; --panel-bg: rgba(22, 28, 45, 0.65);
+        --border-color: rgba(255, 255, 255, 0.08); --primary-accent: #3b82f6;
+        --accent-success: #10b981; --accent-warning: #f59e0b;
+        --danger-color: #ef4444; --text-main: #f3f4f6; --text-muted: #9ca3af;
+        --input-bg: #151722; }
+body { background-color: var(--bg-color); color: var(--text-main);
+       background-image: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.1) 0%, transparent 40%), radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%); }
+nav { background: rgba(15, 18, 29, 0.8); border-bottom: 1px solid var(--border-color);
+      backdrop-filter: blur(10px); }
+.logo-section h1 { background: linear-gradient(135deg, #60a5fa, #34d399);
+                   -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.logo-section p, #heading, .room-subtitle { color: var(--text-muted); }
+#heading h2 { color: #60a5fa; }
+.court-badge { background: rgba(59, 130, 246, 0.15); color: #60a5fa;
+               border: 1px solid rgba(59, 130, 246, 0.3); }
+aside { background: rgba(15, 18, 29, 0.5); border-left: 1px solid var(--border-color);
+        backdrop-filter: blur(20px); }
+.video-card { background: var(--panel-bg); border: 1px solid var(--border-color);
+              backdrop-filter: blur(12px); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
+.video-card:hover { border-color: rgba(59, 130, 246, 0.2); }
+video { background: #000; }
+.participant-overlay { background: rgba(15, 18, 29, 0.75);
+                       border: 1px solid rgba(255, 255, 255, 0.05); }
+.broadcast-header { background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%);
+                    color: #fff; }
+.unmute-overlay { background: rgba(0, 0, 0, 0.4); }
+.unmute-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+              color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+.status-slate { color: #fff; }
+.spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--primary-accent); }
+.control-bar, footer.controls-bar { background: rgba(15, 18, 29, 0.95);
+    border: 1px solid var(--border-color); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(15px); }
+.control-btn { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.05);
+               color: var(--text-main); }
+.control-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.control-btn.active { background: var(--primary-accent); border-color: rgba(59, 130, 246, 0.3); }
+.control-btn.decline { background: var(--danger-color); border-color: rgba(239, 68, 68, 0.3); }
+.control-btn.decline:hover { background-color: #dc2626; }
+.control-btn.join-btn { background: var(--accent-success); border-color: rgba(16, 185, 129, 0.3); }
+.control-btn.join-btn:hover { background-color: #059669; }
+footer.controls-bar { background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+                      border: none; box-shadow: none; backdrop-filter: none; }
+footer.controls-bar .control-btn { background: transparent; border: none; color: #fff; opacity: 0.85; }
+footer.controls-bar .control-btn:hover { opacity: 1; background: transparent; }
+.vol-slider { background: rgba(255,255,255,0.3); }
+.vol-slider::-webkit-slider-thumb { background: #fff; }
+.retro-slider { background: rgba(255,255,255,0.3); }
+.retro-slider::-webkit-slider-thumb { background: var(--danger-color); box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+.login-card { background: var(--panel-bg); border: 1px solid var(--border-color);
+              backdrop-filter: blur(20px); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4); }
+.form-group label { color: var(--text-muted); }
+.form-group input, .chat-input { background: var(--input-bg); border: 1px solid var(--border-color);
+                                 color: var(--text-main); }
+.form-group input:focus, .chat-input:focus { border-color: var(--primary-accent); }
+.btn-primary, #send, #send input, #send button, .send-btn, #loginButton {
+    background: var(--primary-accent); color: #fff; }
+.btn-primary:hover, #send:hover, #send input:hover, #send button:hover, .send-btn:hover, #loginButton:hover {
+    background-color: #2563eb; }
+.btn-danger, #terminate input, #terminate button { background: rgba(239, 68, 68, 0.15);
+    color: #f87171; border-color: rgba(239, 68, 68, 0.25); }
+.btn-danger:hover, #terminate input:hover, #terminate button:hover {
+    background-color: rgba(239, 68, 68, 0.25); }
+#logout, #logout input, #logout button, .logout-btn { background: rgba(239, 68, 68, 0.1);
+    color: #f87171; border-color: rgba(239, 68, 68, 0.2); }
+#logout:hover, #logout input:hover, #logout button:hover, .logout-btn:hover {
+    background: rgba(239, 68, 68, 0.2); }
+.live-badge { border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.5); color: #fff; }
+.live-dot { background-color: var(--danger-color); box-shadow: 0 0 8px var(--danger-color); }
+.brand-dot { background-color: var(--accent-success); box-shadow: 0 0 8px var(--accent-success); }
+.participant-status-dot, .user-status { background: var(--accent-success); }
+.telemetry-dashboard { background: rgba(22, 28, 45, 0.5); border-bottom: 1px solid var(--border-color); }
+.telemetry-title { color: var(--text-muted); }
+.telemetry-metric, .telemetry-stat { background: rgba(15, 18, 29, 0.4); border: 1px solid var(--border-color); }
+.metric-label, .telemetry-stat h3 { color: var(--text-muted); }
+.telemetry-stat .val { color: #fff; }
+.status-ok { color: var(--accent-success); }
+.status-warn { color: var(--accent-warning); }
+.sidebar-tabs { border-bottom: 1px solid var(--border-color); }
+.tab-btn { color: var(--text-muted); }
+.tab-btn.active { color: var(--primary-accent); border-bottom: 2px solid var(--primary-accent);
+                  background: rgba(59, 130, 246, 0.03); }
+.chat-input-wrapper { border-top: 1px solid var(--border-color); background: rgba(15, 18, 29, 0.8); }
+.message-bubble, .message { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.03); }
+.author { color: var(--primary-accent); }
+.user-item, .peer-list li { background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); }
+.peer-list li { background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.05);
+                border-radius: 0; }

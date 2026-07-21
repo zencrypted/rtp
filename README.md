@@ -30,9 +30,8 @@ into a single cohesive Erlang/OTP application.
 │       │   ├── rtc.js           # WebRTC signaling client: peer connection, SDP/ICE, telemetry
 │       │   └── cast.js          # HLS broadcast viewer: hls.js player, retro/live seek, telemetry
 │       └── css/
-│           ├── rtp.css          # Conference participant UI styles
-│           ├── rtp-cast.css     # Broadcast viewer UI styles
-│           └── rtp-login.css    # Login page styles
+│           ├── blank.css        # Base Synrc CSS Layer
+│           └── color.css        # Custom Synrc CSSCLayer
 ├── lib/
 │   └── rtp/
 │       ├── live_stream.ex       # HTTP Live Streaming handler — strips ETag, forces no-store

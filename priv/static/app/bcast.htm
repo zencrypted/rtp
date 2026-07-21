@@ -6,56 +6,58 @@
     <title>ВКЗ: Прямий Ефір</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <link rel="stylesheet" href="/css/rtp-cast.css" />
+    <link rel="stylesheet" href="/css/blank.css" />
+    <link rel="stylesheet" href="/css/color.css" />
 </head>
 <body>
 
-    <div class="broadcast-container" id="container">
-        <!-- Main Video -->
-        <video id="hlsVideo" autoplay muted playsinline></video>
-
-        <!-- Unmute CTA -->
-        <div class="unmute-overlay" id="unmuteOverlay">
-            <div class="unmute-btn">
-                <span>🔇</span> Натисніть для увімкнення звуку
+    <nav>
+        <div class="logo-section">
+            <h1>ВКЗ</h1>
+            <div class="room-subtitle" id="roomDisplay">Завантаження...</div>
+        </div>
+        <div style="display:flex; align-items:center; gap: 15px;">
+            <div class="live-badge offline" id="liveBadge" style="cursor:pointer;" title="Повернутися до прямого ефіру">
+                <div class="live-dot" id="liveDot"></div>
+                <span id="liveText">LIVE</span>
             </div>
+            <button id="infoToggleBtn" class="control-btn" title="Інформація" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            </button>
         </div>
+    </nav>
 
-        <!-- Status Slate -->
-        <div class="status-slate" id="statusSlate">
-            <div class="spinner"></div>
-            <div id="statusText" style="font-weight:300;">Очікування трансляції...</div>
-        </div>
+    <main>
+        <article class="video-container-wrapper" id="container" style="display: flex; flex-direction: column;">
+            <div class="video-grid" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="video-card" style="position: relative; background: #000; flex: 1;">
+                    <!-- Main Video -->
+                    <video id="hlsVideo" autoplay muted playsinline></video>
 
-        <!-- Auto-Hiding Chrome -->
-        <div class="chrome-overlay">
-            <div class="broadcast-header">
-                <div>
-                    <h1 class="brand-title">ВКЗ</h1>
-                    <div class="room-subtitle" id="roomDisplay">Завантаження...</div>
-                </div>
-                <div style="display:flex; align-items:center; gap: 15px;">
-                    <div class="live-badge offline" id="liveBadge" style="cursor:pointer;" title="Повернутися до прямого ефіру">
-                        <div class="live-dot" id="liveDot"></div>
-                        <span id="liveText">LIVE</span>
+                    <!-- Unmute CTA -->
+                    <div class="unmute-overlay" id="unmuteOverlay">
+                        <div class="unmute-btn">
+                            <span>🔇</span> Натисніть для увімкнення звуку
+                        </div>
                     </div>
-                    <button id="infoToggleBtn" class="control-btn" title="Інформація">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-                    </button>
+
+                    <!-- Status Slate -->
+                    <div class="status-slate" id="statusSlate">
+                        <div class="spinner"></div>
+                        <div id="statusText" style="font-weight:300;">Очікування трансляції...</div>
+                    </div>
                 </div>
             </div>
-            <div class="controls-bar">
+
+            <!-- Controls stacked below the video -->
+            <div class="controls-bar" style="position: relative; bottom: auto; left: auto; transform: none; width: 100%; margin-top: 1rem; padding: 1rem; border-radius: 16px; background: rgba(15, 18, 29, 0.95); justify-content: center; z-index: 10;">
                 <button id="playPauseBtn" class="control-btn" title="Play/Pause">
-                    <!-- Pause Icon (Default as it autoplays) -->
                     <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                    <!-- Play Icon -->
                     <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M8 5v14l11-7z"/></svg>
                 </button>
                 
                 <button id="muteBtn" class="control-btn" title="Mute/Unmute">
-                    <!-- Volume Icon -->
                     <svg id="iconVol" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                    <!-- Muted Icon (Default due to autoplay rules) -->
                     <svg id="iconMuted" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
                 </button>
                 <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" class="vol-slider">
@@ -70,32 +72,84 @@
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
                 </button>
             </div>
-        </div>
-        
-        <!-- Telemetry Sidebar -->
-        <div class="telemetry-sidebar" id="sidebar">
-            <button class="sidebar-close" id="sidebarClose">&times;</button>
-            <h2 style="margin-top:0; font-size:1.4rem;">Інформація</h2>
-            
-            <div class="telemetry-stat">
-                <h3>Тривалість трансляції</h3>
-                <div class="val" id="telemetryDuration">00:00:00</div>
-            </div>
-            
-            <div class="telemetry-stat" id="telemetryEndedStat" style="display:none;">
-                <h3>Пройшло після завершення</h3>
-                <div class="val" id="telemetryEndedTime">00:00:00</div>
-            </div>
-            
-            <div class="telemetry-stat">
-                <h3>Учасники (<span id="peerCount">0</span>)</h3>
-                <ul class="peer-list" id="peerList"></ul>
-            </div>
-        </div>
-    </div>
+        </article>
 
+        <!-- Right Panel (Sidebar) -->
+        <aside class="sidebar" id="sidebar">
+            <div class="telemetry-dashboard">
+                <div class="telemetry-title">
+                    <span>Ефір: <span id="telemetryDuration">00:00:00</span></span>
+                </div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-metric">
+                        <div class="metric-label">Глядачі</div>
+                        <div class="metric-value status-ok" id="peerCount">0</div>
+                    </div>
+                </div>
+                <div id="telemetryEndedStat" style="display:none; margin-top: 1rem;">
+                    <div class="metric-label">Пройшло після завершення</div>
+                    <div class="metric-value status-warn" id="telemetryEndedTime">00:00:00</div>
+                </div>
+            </div>
+
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" id="tabChat">Чат (Read Only)</button>
+                <button class="tab-btn" id="tabMembers">Глядачі</button>
+            </div>
+
+            <!-- Chat Tab View (Read Only) -->
+            <div class="chat-section" id="chatSection">
+                <div class="messages-list" id="history">
+                    <!-- Messages inserted dynamically here via N2O/Nitro if connected to same room chat -->
+                    <div class="message-bubble">
+                        <span class="author">System</span>
+                        Ласкаво просимо до прямого ефіру. Чат у режимі лише для читання.
+                    </div>
+                </div>
+                <!-- Read-only input area just for visual balance -->
+                <div class="chat-input-wrapper">
+                    <div class="chat-input-row">
+                        <input type="text" class="chat-input" placeholder="Чат доступний лише учасникам ВКЗ..." disabled style="cursor: not-allowed; opacity: 0.6;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Members Tab View -->
+            <div class="chat-section" id="membersSection" style="display: none; padding: 1.2rem; overflow-y: auto;">
+                <ul class="users-list peer-list" id="peerList"></ul>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Empty footer for layout consistency -->
+    <footer style="display:none;"></footer>
+
+    <script>
+        // Simple tab switching for broadcast sidebar
+        const tabChat = document.getElementById('tabChat');
+        const tabMembers = document.getElementById('tabMembers');
+        const chatSection = document.getElementById('chatSection');
+        const membersSection = document.getElementById('membersSection');
+
+        if(tabChat && tabMembers) {
+            tabChat.onclick = () => {
+                tabChat.classList.add('active');
+                tabMembers.classList.remove('active');
+                chatSection.style.display = 'flex';
+                membersSection.style.display = 'none';
+            };
+
+            tabMembers.onclick = () => {
+                tabMembers.classList.add('active');
+                tabChat.classList.remove('active');
+                chatSection.style.display = 'none';
+                membersSection.style.display = 'flex';
+            };
+        }
+    </script>
+    
     <!-- HLS viewer script -->
-
     <script src="/js/cast.js"></script>
+    
 </body>
 </html>

@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ВКЗ: Відеоконференцзв'язок (MCU GStreamer)</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/rtp.css" />
+    <link rel="stylesheet" href="/css/blank.css" />
+    <link rel="stylesheet" href="/css/color.css" />
 </head>
 <body>
 
-    <header>
+    <nav>
         <div class="logo-section">
             <h1>ВКЗ</h1>
             <span id="heading"></span>
@@ -18,10 +19,10 @@
             <div class="court-badge" id="currentUserSpan">Connecting...</div>
             <span id="logout"></span>
         </div>
-    </header>
+    </nav>
 
-    <div class="main-layout">
-        <div class="video-container-wrapper">
+    <main>
+        <article class="video-container-wrapper">
             <div class="video-grid" id="videoGrid">
                 <!-- MCU Mixed Feed Area -->
                 <div class="video-card">
@@ -41,16 +42,9 @@
                                   transform:scaleX(-1); display:none; z-index:10;"></video>
                 </div>
             </div>
+        </article>
 
-            <div class="control-bar">
-                <button class="control-btn" id="btnMuteAudio" title="Вимкнути мікрофон" disabled>🎙️</button>
-                <button class="control-btn" id="btnMuteVideo" title="Вимкнути камеру" disabled>📹</button>
-                <button class="control-btn" id="btnShare" title="Поділитися екраном" style="display:none;">🖥️</button>
-                <button class="control-btn join-btn" id="btnJoin" title="Приєднатися">📞</button>
-            </div>
-        </div>
-
-        <div class="sidebar">
+        <aside class="sidebar">
             <div class="telemetry-dashboard">
                 <div class="telemetry-title">
                     <span>Мережева Телеметрія</span>
@@ -101,8 +95,15 @@
                 <div id="recording_info" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.8rem; word-break: break-all;"></div>
                 <span id="terminate"></span>
             </div>
-        </div>
-    </div>
+        </aside>
+    </main>
+
+    <footer class="control-bar">
+        <button class="control-btn" id="btnMuteAudio" title="Вимкнути мікрофон" disabled>🎙️</button>
+        <button class="control-btn" id="btnMuteVideo" title="Вимкнути камеру" disabled>📹</button>
+        <button class="control-btn" id="btnShare" title="Поділитися екраном" style="display:none;">🖥️</button>
+        <button class="control-btn join-btn" id="btnJoin" title="Приєднатися">📞</button>
+    </footer>
 
     <!-- N2O / NITRO Scripts -->
     <script src="https://ws.n2o.dev/priv/utf8.js"></script>

@@ -26,12 +26,16 @@
         const sidebar = document.getElementById('sidebar');
         const sidebarClose = document.getElementById('sidebarClose');
 
-        infoToggleBtn.addEventListener('click', () => {
-            sidebar.classList.add('open');
-        });
-        sidebarClose.addEventListener('click', () => {
-            sidebar.classList.remove('open');
-        });
+        if (infoToggleBtn && sidebar) {
+            infoToggleBtn.addEventListener('click', () => {
+                sidebar.classList.add('open');
+            });
+        }
+        if (sidebarClose && sidebar) {
+            sidebarClose.addEventListener('click', () => {
+                sidebar.classList.remove('open');
+            });
+        }
 
         let isLiveMode = true;
         let isUserSeeking = false;

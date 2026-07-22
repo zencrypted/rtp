@@ -70,12 +70,7 @@
             signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName) + '&token=' + encodeURIComponent(sessionToken));
 
             signalingWs.onopen = () => {
-                if (autoJoin) {
-                    console.log('Signaling connected — auto-joining conference');
-                    startConference();
-                } else {
-                    console.log('Signaling connected — standing by (Disconnect was pressed)');
-                }
+                console.log('Signaling connected — standing by for init');
 
                 pingInterval = setInterval(() => {
                     if (signalingWs && signalingWs.readyState === WebSocket.OPEN) {
@@ -97,6 +92,10 @@
                 if (msg.type === 'init') {
                     peerId = msg.peer_id;
                     console.log('My Peer ID:', peerId);
+                    if (autoJoin && !pc) {
+                        console.log('Init received — starting conference');
+                        startConference();
+                    }
                 } else if (msg.type === 'room_info') {
                     const startedAt = msg.started_at;
                     const now = Date.now();
@@ -132,6 +131,7 @@
 
 
         async function startConference() {
+            if (pc) return;
             try {
                 autoJoin = true;
                 localStorage.setItem('rtp_joined', 'true');  // remember: user is joined
@@ -165,9 +165,22 @@
                 btnMuteAudio.disabled = false;
                 btnMuteAudio.classList.add('active');
 
-                pc = new RTCPeerConnection({
-                   // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] // Fallback STUN
-                });
+                let rtcConfig = {
+                    iceServers: [
+                        { urls: 'stun:' + window.location.hostname + ':3478' },
+                        {
+                            urls: 'turn:' + window.location.hostname + ':3478?transport=udp',
+                            username: 'rtpuser',
+                            credential: 'rtppassword'
+                        },
+                        {
+                            urls: 'turn:' + window.location.hostname + ':3478?transport=tcp',
+                            username: 'rtpuser',
+                            credential: 'rtppassword'
+                        }
+                    ]
+                };
+                pc = new RTCPeerConnection(rtcConfig);
 
                 pc.ontrack = (event) => {
                     console.log('Received remote track', event.track);
@@ -212,11 +225,27 @@
                     document.getElementById('streamLabel').style.display = 'block';
                 };
 
+                pc.oniceconnectionstatechange = () => console.log('ICE Connection State changed:', pc.iceConnectionState);
+                pc.onconnectionstatechange = () => console.log('Peer Connection State changed:', pc.connectionState);
+                pc.onicegatheringstatechange = () => console.log('ICE Gathering State changed:', pc.iceGatheringState);
+
                 pc.onicecandidate = (event) => {
-                    if (event.candidate) signalingWs.send(JSON.stringify({ candidate: event.candidate }));
+                    if (event.candidate) {
+                        console.log('Gathered client ICE Candidate:', event.candidate.candidate);
+                        signalingWs.send(JSON.stringify({ candidate: event.candidate }));
+                    }
                 };
 
-                localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+                const videoTrack = localStream.getVideoTracks()[0];
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (videoTrack) {
+                    console.log('Adding local video track (m-line 0):', videoTrack);
+                    pc.addTrack(videoTrack, localStream);
+                }
+                if (audioTrack) {
+                    console.log('Adding local audio track (m-line 1):', audioTrack);
+                    pc.addTrack(audioTrack, localStream);
+                }
 
                 signalingWs.send(JSON.stringify({ type: 'ready' }));
 

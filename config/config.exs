@@ -6,3 +6,6 @@ config :n2o,
 
 config :rtp,
   hls_format: :ts
+
+config :logger, :default_handler,
+  config: [file: ~c"log/rtp.log"]

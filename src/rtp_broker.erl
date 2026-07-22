@@ -35,9 +35,14 @@ terminate_room(BrokerPid, RoomId) ->
     gen_server:call(BrokerPid, {terminate_room, RoomId}).
 
 recording_path(RoomId) ->
+    Ext = case application:get_env(rtp, hls_format, ts) of
+        fmp4 -> "/recording.mp4";
+        mp4 -> "/recording.mp4";
+        _ -> "/index.m3u8"
+    end,
     case RoomId of
-        <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123/index.m3u8");
-        _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId) ++ "/index.m3u8")
+        <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123" ++ Ext);
+        _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId) ++ Ext)
     end.
 
 %% gen_server Callbacks
@@ -68,7 +73,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
             filelib:ensure_dir(OutDir ++ "/"),
             os:cmd("rm -f " ++ OutDir ++ "/*"),
             error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutDir]),
-            HlsFormat = application:get_env(rtp, hls_format, fmp4),
+            HlsFormat = application:get_env(rtp, hls_format, ts),
             FormatStr = atom_to_list(HlsFormat),
             Args = [OutDir, FormatStr],
             error_logger:info_msg("Starting GStreamer MCU: ~p ~p~n", [Binary, Args]),
@@ -108,7 +113,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
     end, Peers),
 
     PlaylistPath = recording_path(RoomId),
-    Status = case filelib:is_regular(PlaylistPath) of
+    Status = case filelib:is_regular(PlaylistPath) andalso filelib:file_size(PlaylistPath) > 0 of
         true -> ok;
         false -> pending
     end,
@@ -242,7 +247,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State) ->
 
 handle_info({poll_manifest, RoomId, StartedAt, Attempts}, State) ->
     PlaylistPath = recording_path(RoomId),
-    case filelib:is_regular(PlaylistPath) of
+    case filelib:is_regular(PlaylistPath) andalso filelib:file_size(PlaylistPath) > 0 of
         true ->
             error_logger:info_msg("HLS manifest ~s is ready on disk. Notifying clients.~n", [PlaylistPath]),
             notify_room_info(RoomId, StartedAt, State),

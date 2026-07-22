@@ -258,6 +258,18 @@ sudo apt-get update
 sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libjson-glib-dev pkg-config
 ```
 
+In PowerShell allow UDP traffic:
+
+```
+New-NetFirewallRule -DisplayName "RTP WebRTC Media UDP (WSL2)" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 49152-65535
+```
+
+In `gst.c`:
+
+```
+g_object_set(webrtc, "latency", 50, "stun-server", "stun://stun.l.google.com:19302", NULL);
+```
+
 ### 8.3 Compile
 
 ```bash

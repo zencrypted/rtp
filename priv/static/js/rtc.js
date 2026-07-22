@@ -111,7 +111,13 @@
                     }
                 } else if (msg.candidate) {
                     try {
-                        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                        if (msg.candidate.candidate === '') {
+                            // Empty candidate = end-of-candidates signal from GStreamer
+                            console.log('ICE gathering complete (end-of-candidates from server)');
+                            await pc.addIceCandidate(null);
+                        } else {
+                            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                        }
                     } catch (err) {
                         console.error('Error adding ICE candidate:', err);
                     }

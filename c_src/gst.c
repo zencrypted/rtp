@@ -33,6 +33,7 @@ typedef struct {
     GstElement *a_resample;
     gint grid_idx;
     gboolean remote_desc_set;
+    gboolean bundled;           /* TRUE when remote SDP uses same ICE ufrag for all mlines (BUNDLE) */
     GArray *pending_ice_candidates;
 } PeerInfo;
 
@@ -68,6 +69,7 @@ static void cleanup_peer(const gchar *peer_id);
 static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data);
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data);
 static void handle_signaling_message(const gchar *json_str);
+static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx, const gchar *candidate_str, gboolean bundled);
 
 // Write JSON message to stdout (read by Erlang port)
 static void send_to_erlang(JsonNode *root) {
@@ -173,7 +175,7 @@ static void on_remote_description_set(GstPromise *promise, gpointer user_data) {
         for (guint i = 0; i < peer->pending_ice_candidates->len; i++) {
             PendingIceCandidate *cand = &g_array_index(peer->pending_ice_candidates, PendingIceCandidate, i);
             g_printerr("DEBUG: Flushing queued remote ICE candidate for peer %s (mline %u): %s\n", peer_id, cand->mline_idx, cand->candidate);
-            add_remote_ice_candidate(peer->webrtc, cand->mline_idx, cand->candidate);
+            add_remote_ice_candidate_impl(peer->webrtc, cand->mline_idx, cand->candidate, peer->bundled);
             g_free(cand->candidate);
         }
         g_array_set_size(peer->pending_ice_candidates, 0);
@@ -448,6 +450,25 @@ static void handle_signaling_message(const gchar *json_str) {
             GstSDPMessage *sdp = NULL;
             gst_sdp_message_new(&sdp);
             gst_sdp_message_parse_buffer((const guint8 *)sdp_text, strlen(sdp_text), sdp);
+
+            /* Detect true BUNDLE: check if all mlines share the same ICE ufrag */
+            gboolean is_bundled = FALSE;
+            guint nmedia = gst_sdp_message_medias_len(sdp);
+            if (nmedia >= 2) {
+                const GstSDPMedia *m0 = gst_sdp_message_get_media(sdp, 0);
+                const GstSDPMedia *m1 = gst_sdp_message_get_media(sdp, 1);
+                const gchar *ufrag0 = gst_sdp_media_get_attribute_val(m0, "ice-ufrag");
+                const gchar *ufrag1 = gst_sdp_media_get_attribute_val(m1, "ice-ufrag");
+                /* Also check mline 1 port is not 0 (rejected) */
+                guint port1 = gst_sdp_media_get_port(m1);
+                if (ufrag0 && ufrag1 && g_strcmp0(ufrag0, ufrag1) == 0 && port1 != 0) {
+                    is_bundled = TRUE;
+                }
+            }
+            peer->bundled = is_bundled;
+            g_printerr("DEBUG: SDP answer for peer %s: nmedia=%u, BUNDLE=%s\n",
+                       peer_id, nmedia, is_bundled ? "yes" : "no");
+
             GstWebRTCSessionDescription *answer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdp);
 
             GstPromise *promise = gst_promise_new_with_change_func(on_remote_description_set, g_strdup(peer_id), NULL);
@@ -465,7 +486,7 @@ static void handle_signaling_message(const gchar *json_str) {
         if (peer && webrtc) {
             if (peer->remote_desc_set) {
                 g_printerr("DEBUG: Adding remote ICE candidate for peer %s (mline %d): %s\n", peer_id, mline_idx, candidate_str);
-                add_remote_ice_candidate(webrtc, (guint)mline_idx, candidate_str);
+                add_remote_ice_candidate_impl(webrtc, (guint)mline_idx, candidate_str, peer->bundled);
             } else {
                 g_printerr("DEBUG: Queueing remote ICE candidate for peer %s (mline %d) until remote description is set\n", peer_id, mline_idx);
                 PendingIceCandidate pending = { g_strdup(candidate_str), (guint)mline_idx };
@@ -557,18 +578,25 @@ static const gchar *get_wsl_gateway_ip(void) {
     return gw_ip;
 }
 
-static void add_remote_ice_candidate(GstElement *webrtc, guint mline_idx, const gchar *candidate_str) {
+static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx,
+                                          const gchar *candidate_str, gboolean bundled) {
     if (!webrtc || !candidate_str) return;
 
+    /* Always add to the declared mline */
     g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, candidate_str);
-    g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), candidate_str);
+    /* Only mirror to the other mline when BUNDLE is confirmed (same ICE ufrag) */
+    if (bundled) {
+        g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), candidate_str);
+    }
 
     if (is_wsl()) {
         gchar *dup_cand_127 = replace_wsl_ip(candidate_str);
         if (dup_cand_127 && g_strcmp0(dup_cand_127, candidate_str) != 0) {
             g_printerr("DEBUG: WSL2 synthesized 127.0.0.1 remote candidate: %s\n", dup_cand_127);
             g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, dup_cand_127);
-            g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), dup_cand_127);
+            if (bundled) {
+                g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), dup_cand_127);
+            }
             g_free(dup_cand_127);
         } else if (dup_cand_127) {
             g_free(dup_cand_127);
@@ -591,6 +619,10 @@ static void add_remote_ice_candidate(GstElement *webrtc, guint mline_idx, const 
             }
         }
     }
+}
+
+static void add_remote_ice_candidate(GstElement *webrtc, guint mline_idx, const gchar *candidate_str) {
+    add_remote_ice_candidate_impl(webrtc, mline_idx, candidate_str, TRUE);
 }
 
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data) {

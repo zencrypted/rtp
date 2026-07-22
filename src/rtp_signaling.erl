@@ -14,6 +14,7 @@
 init({UserId, RoomId, Role, Token}) ->
     PeerId = <<"peer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
     {ok, RoomPid} = rtp_coordinator:ensure_started(RoomId),
+    rtp_token:cleanup_user(UserId, RoomId),
     case Token of
         undefined -> ok;
         <<>> -> ok;

@@ -83,15 +83,12 @@ flowchart TD
     subgraph Ingest ["Ingest Path (Per Peer)"]
         WB -->|src_%u   sink| DB[decodebin]
         DB -->|src_%u| PAD[pad-added]
-
         PAD -->|video pad   sink| VC
         PAD -->|audio pad   sink| AC
-
         subgraph VideoIngest [Video Ingest]
             VC[videoconvert] -->|src   sink| JQ[v_jitter queue<br>max-buffers=3]
             JQ -->|src| COMP_SINK[compositor.sink_%u<br>Grid Position]
         end
-
         subgraph AudioIngest [Audio Ingest]
             AC[audioconvert] -->|src   sink| AR[audioresample]
             AR -->|src   sink| AJQ[a_jitter queue<br>max-buffers=3]

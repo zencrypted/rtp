@@ -51,6 +51,20 @@ typedef struct {
 
 static RecorderState state;
 
+typedef struct {
+    gchar *pem_certificate;
+    gchar *pem_key;
+    GstWebRTCBundlePolicy bundle_policy;
+    guint latency;
+} WebRTCConfig;
+
+static WebRTCConfig global_config = {
+    .pem_certificate = NULL,
+    .pem_key = NULL,
+    .bundle_policy = GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
+    .latency = 220
+};
+
 // WSL2 Helpers
 
 static gboolean is_wsl(void) {
@@ -331,8 +345,17 @@ static void setup_peer(const gchar *peer_id) {
     // - 200ms+: High latency. Recommended for 3G/Mobile networks with high packet jitter.
     // Note: This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
 
-    g_object_set(webrtc, "latency", 220, "bundle-policy",
-        GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
+    g_object_set(webrtc,
+        "latency", global_config.latency,
+        "bundle-policy", global_config.bundle_policy,
+        NULL);
+
+    if (global_config.pem_certificate && global_config.pem_key) {
+        g_object_set(webrtc,
+            "pem-certificate", global_config.pem_certificate,
+            "pem-key", global_config.pem_key,
+            NULL);
+    }
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
@@ -502,7 +525,33 @@ static void handle_signaling_message(const gchar *json_str) {
     JsonObject *root = json_node_get_object(json_parser_get_root(parser));
     const gchar *type = json_object_get_string_member(root, "type");
 
-    if (g_strcmp0(type, "peer_joined") == 0) {
+    if (g_strcmp0(type, "config") == 0 || g_strcmp0(type, "init") == 0) {
+        if (json_object_has_member(root, "pem_certificate") || json_object_has_member(root, "pem-certificate")) {
+            const gchar *cert = json_object_has_member(root, "pem_certificate") ?
+                json_object_get_string_member(root, "pem_certificate") :
+                json_object_get_string_member(root, "pem-certificate");
+            g_free(global_config.pem_certificate);
+            global_config.pem_certificate = g_strdup(cert);
+        }
+        if (json_object_has_member(root, "pem_key") || json_object_has_member(root, "pem-key")) {
+            const gchar *key = json_object_has_member(root, "pem_key") ?
+                json_object_get_string_member(root, "pem_key") :
+                json_object_get_string_member(root, "pem-key");
+            g_free(global_config.pem_key);
+            global_config.pem_key = g_strdup(key);
+        }
+        if (json_object_has_member(root, "latency")) {
+            global_config.latency = (guint)json_object_get_int_member(root, "latency");
+        }
+        if (json_object_has_member(root, "bundle_policy") || json_object_has_member(root, "bundle-policy")) {
+            const gchar *bp = json_object_has_member(root, "bundle_policy") ?
+                json_object_get_string_member(root, "bundle_policy") :
+                json_object_get_string_member(root, "bundle-policy");
+            if (g_strcmp0(bp, "none") == 0) global_config.bundle_policy = GST_WEBRTC_BUNDLE_POLICY_NONE;
+            else if (g_strcmp0(bp, "max-compat") == 0) global_config.bundle_policy = GST_WEBRTC_BUNDLE_POLICY_MAX_COMPAT;
+            else global_config.bundle_policy = GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE;
+        }
+    } else if (g_strcmp0(type, "peer_joined") == 0) {
         const gchar *peer_id = json_object_get_string_member(root, "peer_id");
         setup_peer(peer_id);
     } else if (g_strcmp0(type, "sdp_answer") == 0) {
@@ -694,6 +743,9 @@ int main(int argc, char *argv[]) {
     if (state.audio_tee) gst_object_unref(state.audio_tee);
     g_hash_table_destroy(state.webrtcbins);
     g_main_loop_unref(state.loop);
+
+    if (global_config.pem_certificate) g_free(global_config.pem_certificate);
+    if (global_config.pem_key) g_free(global_config.pem_key);
 
     return 0;
 }

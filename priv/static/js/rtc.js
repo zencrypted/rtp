@@ -171,7 +171,13 @@
                 btnMuteAudio.disabled = false;
                 btnMuteAudio.classList.add('active');
 
+                const cert = await RTCPeerConnection.generateCertificate({
+                    name: "ECDSA",
+                    namedCurve: "P-256"
+                });
+
                 let rtcConfig = {
+                    certificates: [cert],
                     iceServers: [
                         { urls: 'stun:' + window.location.hostname + ':3478' },
                         {
@@ -186,6 +192,8 @@
                         }
                     ]
                 };
+
+                
                 pc = new RTCPeerConnection(rtcConfig);
 
                 pc.ontrack = (event) => {

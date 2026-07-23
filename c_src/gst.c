@@ -387,7 +387,7 @@ static void setup_peer(const gchar *peer_id) {
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(on_incoming_pad), peer);
 
-    GstPromise *promise = gst_promise_new_with_change_func(on_offer_created, g_strdup(peer_id), NULL);
+    GstPromise *promise = gst_promise_new_with_change_func(on_offer_created, g_strdup(peer_id), g_free);
     g_signal_emit_by_name(webrtc, "create-offer", NULL, promise);
 }
 

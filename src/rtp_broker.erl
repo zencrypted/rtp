@@ -2,6 +2,7 @@
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
 -include_lib("n2o/include/n2o.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
 -export([start_link/0, peer_joined/4, sdp_answer/4, ice_candidate/4, peer_left/3, terminate_room/2, recording_path/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -90,6 +91,19 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
                     {"GST_PLUGIN_FEATURE_FILTER", "opengl:0,applemedia:0"}
                 ]}
             ]),
+            case file:read_file("priv/cert.pem") of
+                {ok, CertPem} ->
+                    log_cert_info(CertPem),
+                    {ok, KeyPem} = file:read_file("priv/key.pem"),
+                    send_to_port(P, #{
+                        <<"type">> => <<"config">>,
+                        <<"pem_certificate">> => CertPem,
+                        <<"pem_key">> => KeyPem,
+                        <<"latency">> => 220,
+                        <<"bundle_policy">> => <<"max-bundle">>
+                    });
+                _ -> ok
+            end,
             {P, maps:put(RoomId, P, State#state.ports), Now, maps:put(RoomId, Now, State#state.room_started_at)}
     end,
 
@@ -360,3 +374,38 @@ find_existing_path([Path | T]) ->
     end;
 find_existing_path([]) ->
     "./priv/gst".
+
+log_cert_info(CertPem) ->
+    try
+        [Entry | _] = public_key:pem_decode(CertPem),
+        DerCert = element(2, Entry),
+        OTPCert = public_key:pkix_decode_cert(DerCert, otp),
+        TBSCert = OTPCert#'OTPCertificate'.tbsCertificate,
+        Serial = TBSCert#'OTPTBSCertificate'.serialNumber,
+        {rdnSequence, RDNs} = TBSCert#'OTPTBSCertificate'.subject,
+        CN = extract_cn(RDNs),
+        error_logger:info_msg("Loaded WebRTC DTLS Cert: CN=~s, Serial=~p~n", [CN, Serial])
+    catch
+        Class:Reason ->
+            error_logger:warning_msg("Failed to parse cert info: ~p:~p~n", [Class, Reason])
+    end.
+
+extract_cn([]) -> "Unknown";
+extract_cn([RDN | Rest]) ->
+    case find_cn_in_rdn(RDN) of
+        false -> extract_cn(Rest);
+        CN -> CN
+    end.
+
+find_cn_in_rdn([]) -> false;
+find_cn_in_rdn([#'AttributeTypeAndValue'{type = ?'id-at-commonName', value = Value} | _]) ->
+    format_cn_value(Value);
+find_cn_in_rdn([_ | Rest]) ->
+    find_cn_in_rdn(Rest).
+
+format_cn_value({printableString, CN}) -> CN;
+format_cn_value({utf8String, CN}) when is_binary(CN) -> binary_to_list(CN);
+format_cn_value({utf8String, CN}) when is_list(CN) -> CN;
+format_cn_value(CN) when is_binary(CN) -> binary_to_list(CN);
+format_cn_value(CN) when is_list(CN) -> CN;
+format_cn_value(_) -> "Unknown".

@@ -532,6 +532,7 @@ static void handle_signaling_message(const gchar *json_str) {
                 json_object_get_string_member(root, "pem-certificate");
             g_free(global_config.pem_certificate);
             global_config.pem_certificate = g_strdup(cert);
+            g_printerr("DEBUG: Loaded custom WebRTC DTLS certificate into global config\n");
         }
         if (json_object_has_member(root, "pem_key") || json_object_has_member(root, "pem-key")) {
             const gchar *key = json_object_has_member(root, "pem_key") ?

@@ -551,6 +551,7 @@ The login page issues a 3-minute session token and redirects to the conference p
 * M. Sokhatsky. *RTP: A Minimal MCU Gateway of ANSI C99 with GStreamer for High-Density
   Video Conferencing on Erlang/OTP Control Plane in Alpine Linux under Kubernetes
   (Part of Zen Crypted X.422.2 Buddha Protocol)*. Axiosis. 2026. ([rtp.pdf](rtp.pdf))
+
 * M. Sokhatsky. *NuStream: A Lightweight, Predictable Deterministic Real-Time Media
   Pipeline with GStreamer-like API for NuttX RTOS*. Axiosis. 2026. ([gst-nuttx.pdf](gst-nuttx.pdf))
 
@@ -558,4 +559,3 @@ The login page issues a 3-minute session token and redirects to the conference p
 
 * Ericsson Research — First GStreamer WebRTC implementation (OpenWebRTC)
 * 5HT — Author of SYNRC RTP
-

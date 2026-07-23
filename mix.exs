@@ -5,7 +5,7 @@ defmodule Rtp.MixProject do
     [
       app: :rtp,
       description: "ERP/1: GST RTP RTC ICE SDP H.264 AVC H.265 HEVC MP4 MPEG-2 HLS",
-      version: "0.7.21",
+      version: "0.7.24",
       package: package(),
       aliases: aliases(),
       deps: deps()

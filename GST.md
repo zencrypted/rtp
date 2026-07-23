@@ -1,7 +1,7 @@
 # GStreamer WebRTC MCU Media Compositor
 
 This document provides a specification of the GStreamer-based Multipoint Control Unit (MCU)
-implemented in `c_src/gst.c`. It defines the pipeline architecture, data structures,
+implemented in `c_src/gst.c` in 555 LOC. It defines the pipeline architecture, data structures,
 dynamic peer lifecycle, inter-process communication protocol, output multiplexing strategies,
 and architectural invariants of the production C99 compositor binary `priv/gst`.
 
@@ -13,9 +13,11 @@ of the RTP video conferencing system. It fulfils three simultaneous responsibili
 1. **Upstream Ingest** — Receives encrypted WebRTC SRTP/SRTCP streams from each
    participant via independent `webrtcbin` elements, decoding them into raw
    audio-visual frames using per-peer `decodebin` instances.
+
 2. **Mixing and Compositing** — Composites all decoded video feeds into a single
    1920x1080 spatial grid via GStreamer's `compositor` and additively mixes
    all audio tracks through `audiomixer`.
+
 3. **Downstream Broadcast and Recording** — Re-encodes and broadcasts the composite
    stream back to every participant as a single WebRTC downstream connection while
    simultaneously writing the session to disk in HLS or fragmented MP4 format.
@@ -27,8 +29,10 @@ the Erlang control plane.
 
 ### 1.1 High-Level Architecture
 
-The following diagram provides a **macro-level conceptual overview** of the media pipeline. It illustrates the four primary lifecycle stages (Ingest, Central Mixer, Broadcast, and Recording) without getting bogged down in the exact pad connections or intermediate conversion elements. Use this to understand the general data flow of the MCU.
-
+The following diagram provides a macro-level conceptual overview of the media pipeline.
+It illustrates the four primary lifecycle stages (Ingest, Central Mixer, Broadcast, and Recording)
+without getting bogged down in the exact pad connections or intermediate conversion elements.
+Use this to understand the general data flow of the MCU.
 
 ```mermaid
 flowchart TD
@@ -65,8 +69,10 @@ flowchart TD
 
 ### 1.2 Low-Level Detailed Topology
 
-The second diagram below provides the **micro-level exact element topology**. It explicitly maps every dynamic pad connection (e.g., `sink_N`, `sink_0`, `sink_1`) and dual-tee bifurcations exactly as they are constructed in `gst.c`. Use this diagram as the canonical reference when reading or modifying the C source code.
-
+The second diagram below provides the micro-level exact element topology.
+It explicitly maps every dynamic pad connection (e.g., `sink_N`, `sink_0`, `sink_1`)
+and dual-tee bifurcations exactly as they are constructed in `gst.c`.
+Use this diagram as the canonical reference when reading or modifying the C source code.
 
 ```mermaid
 flowchart TD
@@ -280,14 +286,14 @@ g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
 
 ### 4.4 Peer Departure — Six-Stage Teardown `cleanup_peer(peer_id)`
 
-| Stage | Action |
-|-------|--------|
-| 1 | Unlink/release vtee src pad; NULL v_queue; remove from pipeline |
-| 2 | Unlink/release atee src pad; NULL a_queue; remove from pipeline |
-| 3 | Unlink from comp_pad; release compositor pad; NULL/remove v_convert, v_decodebin |
-| 4 | Unlink from amix_pad; release audiomixer pad; NULL/remove a_resample, a_convert, a_decodebin |
-| 5 | NULL webrtcbin; remove from pipeline |
-| 6 | Free grid slot; remove from webrtcbins hash table |
+| Stage | Action                                                                                       |
+|-------|----------------------------------------------------------------------------------------------|
+| 1     | Unlink/release vtee src pad; NULL v_queue; remove from pipeline                              |
+| 2     | Unlink/release atee src pad; NULL a_queue; remove from pipeline                              |
+| 3     | Unlink from comp_pad; release compositor pad; NULL/remove v_convert, v_decodebin             |
+| 4     | Unlink from amix_pad; release audiomixer pad; NULL/remove a_resample, a_convert, a_decodebin |
+| 5     | NULL webrtcbin; remove from pipeline                                                         |
+| 6     | Free grid slot; remove from webrtcbins hash table                                            |
 
 ## 5. Signaling Protocol (Port IPC)
 
@@ -415,3 +421,8 @@ iex -S mix
 | Signal safety | `g_unix_signal_add()` dispatches to GLib main loop |
 | Resource reclamation | Six-stage ordered cleanup on every peer departure |
 | Grid capacity | Up to 16 simultaneous participants (4x4 spatial grid) |
+
+# Credits
+
+* Namdak Tonpa
+

@@ -1,5 +1,3 @@
-//Part 1: Headers, Structs & Helpers
-
 #define GST_USE_UNSTABLE_API
 
 #include <gst/gst.h>
@@ -12,9 +10,10 @@
 #include <signal.h>
 #include <glib-unix.h>
 
-
 #define WIDTH 1920
 #define HEIGHT 1080
+
+//Part 1: Structs & Helpers
 
 typedef struct {
     gchar *peer_id;
@@ -53,6 +52,7 @@ typedef struct {
 static RecorderState state;
 
 // WSL2 Helpers
+
 static gboolean is_wsl(void) {
     static gint in_wsl = -1;
     if (in_wsl != -1) return (gboolean)in_wsl;
@@ -83,6 +83,7 @@ static gchar *replace_wsl_ip(const gchar *candidate) {
 }
 
 // Prototypes
+
 static void cleanup_peer(const gchar *peer_id);
 static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data);
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data);
@@ -91,6 +92,7 @@ static void handle_signaling_message(const gchar *json_str);
 // Part 2: Signaling & Core Callbacks
 
 // IO channel callback for stdin signaling
+
 static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer data) {
     gchar *line = NULL;
     gsize length = 0;
@@ -178,6 +180,7 @@ static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candida
 }
 
 // ==================== LOW LATENCY INGEST ====================
+
 static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_data) {
     PeerInfo *peer = (PeerInfo *)user_data;
     GstCaps *caps = gst_pad_get_current_caps(pad);
@@ -308,8 +311,8 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
     g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
 }
 
-
 // ==================== SETUP PEER (Simplified) ====================
+
 static void setup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Setting up peer: %s\n", peer_id);
 
@@ -328,10 +331,8 @@ static void setup_peer(const gchar *peer_id) {
     // - 200ms+: High latency. Recommended for 3G/Mobile networks with high packet jitter.
     // Note: This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
 
-    g_object_set(webrtc,
-        "latency", 220,
-        "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-        NULL);
+    g_object_set(webrtc, "latency", 220, "bundle-policy",
+        GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, NULL);
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
@@ -392,6 +393,7 @@ static void setup_peer(const gchar *peer_id) {
 }
 
 // ==================== CLEANUP ====================
+
 static void cleanup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Cleaning up peer: %s\n", peer_id);
     PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
@@ -547,6 +549,7 @@ static void handle_signaling_message(const gchar *json_str) {
 }
 
 // ==================== SIGNAL & BUS HANDLERS ====================
+
 static gboolean on_unix_signal(gpointer user_data) {
     gint sig = GPOINTER_TO_INT(user_data);
     g_printerr("DEBUG: Caught signal %d, sending EOS...\n", sig);
@@ -580,7 +583,6 @@ static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) 
     return TRUE;
 }
 
-// ==================== MAIN ====================
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         g_printerr("Usage: %s <output_directory>\n", argv[0]);

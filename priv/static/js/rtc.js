@@ -102,6 +102,16 @@
                     const deltaMs = now - startedAt;
                     console.log(`Room started at: ${startedAt}. Delta from now: ${deltaMs}ms`);
                     document.getElementById('streamLabel').style.display = 'none';
+                } else if (msg.type === 'reset_webrtc') {
+                    console.warn('Server media process restarted — resetting WebRTC connection');
+                    if (pc) {
+                        pc.close();
+                        pc = null;
+                    }
+                    if (autoJoin) {
+                        console.log('Re-starting conference following media server reset...');
+                        startConference();
+                    }
                 } else if (msg.sdp) {
                     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     if (msg.sdp.type === 'offer') {

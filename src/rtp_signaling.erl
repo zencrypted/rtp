@@ -113,6 +113,10 @@ handle_info({peer_left, PeerId}, State) ->
     Payload = jsone:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
     {push, {text, Payload}, State};
 
+handle_info(reset_webrtc, State) ->
+    Payload = jsone:encode(#{<<"type">> => <<"reset_webrtc">>}),
+    {push, {text, Payload}, State};
+
 handle_info({send_payload, Payload}, State) ->
     {push, {text, Payload}, State};
 

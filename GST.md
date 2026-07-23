@@ -43,16 +43,18 @@ flowchart TD
         AMIX --> ATEE[audio tee]
     end
     subgraph Broadcast ["Broadcast"]
-        TEE --> VQ[per-peer queue leaky 1s] --> WB
+        TEE --> VQ[per-peer v_queue leaky 1s] --> WB
+        ATEE --> AQ[per-peer a_queue leaky 1s] --> WB
     end
     subgraph Recording ["Recording"]
         TEE --> MUX[mp4mux / hlssink2] --> OUT[Output File]
+        ATEE --> MUX
     end
     classDef critical fill:#FF6B6B,stroke:#FF0000,color:white
     classDef queue fill:#4ECDC4,stroke:#45B7D1
     classDef mixer fill:#45B7D1,stroke:#2C8C9E
     class JQ,AJQ critical
-    class VQ queue
+    class VQ,AQ queue
     class COMP,ENC,AMIX mixer
 ```
 

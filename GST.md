@@ -25,6 +25,11 @@ The binary is spawned as a supervised OS port process by the Erlang
 JSON over UNIX standard I/O pipes, making the media plane fully decoupled from
 the Erlang control plane.
 
+### 1.1 High-Level Architecture
+
+The following diagram provides a **macro-level conceptual overview** of the media pipeline. It illustrates the four primary lifecycle stages (Ingest, Central Mixer, Broadcast, and Recording) without getting bogged down in the exact pad connections or intermediate conversion elements. Use this to understand the general data flow of the MCU.
+
+
 ```mermaid
 flowchart TD
     Peer[WebRTC Peer] <--> WB[webrtcbin]
@@ -57,6 +62,11 @@ flowchart TD
     class VQ,AQ queue
     class COMP,ENC,AMIX mixer
 ```
+
+### 1.2 Low-Level Detailed Topology
+
+The second diagram below provides the **micro-level exact element topology**. It explicitly maps every dynamic pad connection (e.g., `sink_N`, `sink_0`, `sink_1`) and dual-tee bifurcations exactly as they are constructed in `gst.c`. Use this diagram as the canonical reference when reading or modifying the C source code.
+
 
 ```mermaid
 flowchart TD

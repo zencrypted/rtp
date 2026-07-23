@@ -190,7 +190,7 @@ static void setup_peer(const gchar *peer_id) {
     }
 
     // Set a modest latency to absorb local jitter (0ms can cause severe frame drops)
-    g_object_set(webrtc, "latency", 50, NULL);
+    g_object_set(webrtc, "latency", 100, NULL);
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
@@ -473,31 +473,50 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gint x = (idx % 2) * w;
         gint y = (idx / 2) * h;
 
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint) (idx + 10), "sizing-policy", 1, NULL);
-        g_printerr("DEBUG: Linked video pad to compositor quadrant position (%d, %d) with zorder %u\n", x, y, idx + 10);
+        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, 
+                     "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
 
+        // === NEW: Jitter-absorbing queue + converter ===
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
-        peer->v_convert = converter;
-        gst_bin_add(GST_BIN(state.pipeline), converter);
+        GstElement *jitter_queue = gst_element_factory_make("queue", NULL);
+        
+        g_object_set(jitter_queue,
+            "leaky", 2,
+            "max-size-time", (guint64)250000000,   // 250ms - good starting point
+            "max-size-buffers", 0,
+            "max-size-bytes", 0,
+            NULL);
+
+        peer->v_convert = converter;   // reuse existing field for cleanup
+
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, jitter_queue, NULL);
 
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *conv_src = gst_element_get_static_pad(converter, "src");
+        GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
+        GstPad *jq_sink   = gst_element_get_static_pad(jitter_queue, "sink");
+        GstPad *jq_src    = gst_element_get_static_pad(jitter_queue, "src");
 
         GstPadLinkReturn ret1 = gst_pad_link(pad, conv_sink);
-        GstPadLinkReturn ret2 = gst_pad_link(conv_src, comp_pad);
-        g_printerr("DEBUG: video gst_pad_link results: pad->conv_sink=%d, conv_src->comp_pad=%d\n", ret1, ret2);
+        GstPadLinkReturn ret2 = gst_pad_link(conv_src, jq_sink);
+        GstPadLinkReturn ret3 = gst_pad_link(jq_src, comp_pad);
+
+        g_printerr("DEBUG: video link results: pad->conv=%d conv->jitter=%d jitter->comp=%d\n", 
+                   ret1, ret2, ret3);
 
         gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(jitter_queue);
 
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
+        gst_object_unref(jq_sink);
+        gst_object_unref(jq_src);
 
     } else if (g_str_has_prefix(name, "audio")) {
         gst_caps_unref(caps);
         g_printerr("DEBUG: Linking audio pad to audiomixer for peer: %s\n", peer->peer_id);
 
         GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
-        peer->amix_pad = amix_pad; // Keep ownership reference for cleanup
+        peer->amix_pad = amix_pad;
 
         GstElement *converter = gst_element_factory_make("audioconvert", NULL);
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);

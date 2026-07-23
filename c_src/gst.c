@@ -1,6 +1,7 @@
 #define GST_USE_UNSTABLE_API
 
 #include <gst/gst.h>
+#include <gst/video/video.h>
 #include <gst/webrtc/webrtc.h>
 #include <gst/sdp/sdp.h>
 #include <json-glib/json-glib.h>
@@ -157,6 +158,16 @@ static void on_ice_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer 
     GstWebRTCICEConnectionState ice_state;
     g_object_get(webrtc, "ice-connection-state", &ice_state, NULL);
     g_printerr("DEBUG: GStreamer ICE connection state for %s: %d\n", peer->peer_id, ice_state);
+    if (ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED ||
+        ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED) {
+        g_printerr("DEBUG: Sending force keyframe (IDR) unit for peer %s...\n", peer->peer_id);
+        GstPad *v_src = gst_element_get_static_pad(state.compositor, "src");
+        if (v_src) {
+            GstEvent *key_event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, TRUE, 0);
+            gst_pad_send_event(v_src, key_event);
+            gst_object_unref(v_src);
+        }
+    }
 }
 
 static gboolean is_wsl(void);
@@ -456,18 +467,24 @@ static void handle_signaling_message(const gchar *json_str) {
             gst_sdp_message_new(&sdp);
             gst_sdp_message_parse_buffer((const guint8 *)sdp_text, strlen(sdp_text), sdp);
 
-            /* Detect true BUNDLE: check if all mlines share the same ICE ufrag */
+            /* Detect BUNDLE: check if single active media or shared ufrag */
             gboolean is_bundled = FALSE;
             guint nmedia = gst_sdp_message_medias_len(sdp);
-            if (nmedia >= 2) {
+            if (nmedia == 1) {
+                is_bundled = TRUE;
+            } else if (nmedia >= 2) {
                 const GstSDPMedia *m0 = gst_sdp_message_get_media(sdp, 0);
                 const GstSDPMedia *m1 = gst_sdp_message_get_media(sdp, 1);
-                const gchar *ufrag0 = gst_sdp_media_get_attribute_val(m0, "ice-ufrag");
-                const gchar *ufrag1 = gst_sdp_media_get_attribute_val(m1, "ice-ufrag");
-                /* Also check mline 1 port is not 0 (rejected) */
                 guint port1 = gst_sdp_media_get_port(m1);
-                if (ufrag0 && ufrag1 && g_strcmp0(ufrag0, ufrag1) == 0 && port1 != 0) {
+                if (port1 == 0) {
+                    /* Audio mline is rejected -> single active video media */
                     is_bundled = TRUE;
+                } else {
+                    const gchar *ufrag0 = gst_sdp_media_get_attribute_val(m0, "ice-ufrag");
+                    const gchar *ufrag1 = gst_sdp_media_get_attribute_val(m1, "ice-ufrag");
+                    if (ufrag0 && ufrag1 && g_strcmp0(ufrag0, ufrag1) == 0) {
+                        is_bundled = TRUE;
+                    }
                 }
             }
             peer->bundled = is_bundled;
@@ -589,10 +606,6 @@ static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx,
 
     /* Always add to the declared mline */
     g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, candidate_str);
-    /* Only mirror to the other mline when BUNDLE is confirmed (same ICE ufrag) */
-    if (bundled) {
-        g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), candidate_str);
-    }
 
     if (is_wsl()) {
         gchar *dup_cand_127 = replace_wsl_ip(candidate_str);
@@ -627,7 +640,7 @@ static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx,
 }
 
 static void add_remote_ice_candidate(GstElement *webrtc, guint mline_idx, const gchar *candidate_str) {
-    add_remote_ice_candidate_impl(webrtc, mline_idx, candidate_str, TRUE);
+    add_remote_ice_candidate_impl(webrtc, mline_idx, candidate_str, FALSE);
 }
 
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data) {

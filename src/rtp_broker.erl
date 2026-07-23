@@ -296,8 +296,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Helpers
 
 send_to_port(Port, Map) ->
-    Json = jsone:encode(Map),
+    SanitizedMap = maps:map(fun
+        (<<"peer_id">>, V) -> to_bin(V);
+        (_K, V) -> V
+    end, Map),
+    Json = jsone:encode(SanitizedMap),
     port_command(Port, [Json, <<"\n">>]).
+
+to_bin(V) when is_binary(V) -> V;
+to_bin(V) when is_list(V) -> list_to_binary(V);
+to_bin(V) -> list_to_binary(io_lib:format("~w", [V])).
 
 notify_room_info(RoomId, StartedAt, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),

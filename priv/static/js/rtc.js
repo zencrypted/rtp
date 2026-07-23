@@ -55,15 +55,77 @@
         const localVideo  = document.getElementById('localVideo');
         const btnJoin      = document.getElementById('btnJoin');
         const btnMuteVideo = document.getElementById('btnMuteVideo');
-        const btnMuteAudio = document.getElementById('btnMuteAudio');
-
         let signalingWs = null;
         let pc          = null;
         let localStream = null;
         let peerId      = null;
         let pingInterval= null;
-        // Persisted join state: true if user was joined before F5, false if they explicitly disconnected
         let autoJoin    = localStorage.getItem('rtp_joined') === 'true';
+        let pendingRemoteSdp = null;
+        let pendingRemoteCandidates = [];
+
+        async function handleRemoteSdp(sdpMsg) {
+            if (!pc) {
+                console.warn('Queued remote SDP until RTCPeerConnection is created:', sdpMsg);
+                pendingRemoteSdp = sdpMsg;
+                return;
+            }
+            try {
+                let sdpObj = Object.assign({}, sdpMsg);
+                if (sdpObj.sdp && !sdpObj.sdp.includes('a=group:BUNDLE')) {
+                    const mids = [...sdpObj.sdp.matchAll(/a=mid:(\w+)/g)].map(m => m[1]);
+                    if (mids.length > 0) {
+                        const bundleLine = `a=group:BUNDLE ${mids.join(' ')}\r\n`;
+                        const firstMLine = sdpObj.sdp.indexOf('m=');
+                        if (firstMLine !== -1) {
+                            sdpObj.sdp = sdpObj.sdp.slice(0, firstMLine) + bundleLine + sdpObj.sdp.slice(firstMLine);
+                            console.log('Auto-injected BUNDLE group line into SDP offer:', bundleLine.trim());
+                        }
+                    }
+                }
+                console.log('Applying remote SDP:', sdpObj);
+                await pc.setRemoteDescription(new RTCSessionDescription(sdpObj));
+                if (sdpObj.type === 'offer') {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    console.log('Sending SDP answer to server:', pc.localDescription);
+                    signalingWs.send(JSON.stringify({ sdp: pc.localDescription }));
+                }
+                if (pendingRemoteCandidates.length > 0) {
+                    console.log(`Flushing ${pendingRemoteCandidates.length} queued ICE candidates...`);
+                    for (const cand of pendingRemoteCandidates) {
+                        try {
+                            if (cand.candidate === '') {
+                                await pc.addIceCandidate(null);
+                            } else {
+                                await pc.addIceCandidate(new RTCIceCandidate(cand));
+                            }
+                        } catch(e) { console.error('Error applying queued ICE candidate:', e); }
+                    }
+                    pendingRemoteCandidates = [];
+                }
+            } catch(err) {
+                console.error('Error applying remote SDP:', err);
+            }
+        }
+
+        async function handleRemoteCandidate(candMsg) {
+            if (!pc || !pc.remoteDescription) {
+                console.log('Queued remote ICE candidate until remote SDP is set:', candMsg);
+                pendingRemoteCandidates.push(candMsg);
+                return;
+            }
+            try {
+                if (candMsg.candidate === '') {
+                    console.log('ICE gathering complete (end-of-candidates from server)');
+                    await pc.addIceCandidate(null);
+                } else {
+                    await pc.addIceCandidate(new RTCIceCandidate(candMsg));
+                }
+            } catch (err) {
+                console.error('Error adding ICE candidate:', err);
+            }
+        }
 
         function connectSignaling() {
             // Connect to signaling websocket using fallback auth query params
@@ -113,24 +175,9 @@
                         startConference();
                     }
                 } else if (msg.sdp) {
-                    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-                    if (msg.sdp.type === 'offer') {
-                        const answer = await pc.createAnswer();
-                        await pc.setLocalDescription(answer);
-                        signalingWs.send(JSON.stringify({ sdp: pc.localDescription }));
-                    }
+                    await handleRemoteSdp(msg.sdp);
                 } else if (msg.candidate) {
-                    try {
-                        if (msg.candidate.candidate === '') {
-                            // Empty candidate = end-of-candidates signal from GStreamer
-                            console.log('ICE gathering complete (end-of-candidates from server)');
-                            await pc.addIceCandidate(null);
-                        } else {
-                            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                        }
-                    } catch (err) {
-                        console.error('Error adding ICE candidate:', err);
-                    }
+                    await handleRemoteCandidate(msg.candidate);
                 }
             };
         }
@@ -160,10 +207,33 @@
                         audio: true 
                     });
                 } catch (e) {
-                    console.warn('Webcam acquisition failed, falling back to audio only:', e);
-                    localStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: true 
-                    });
+                    console.warn('Webcam acquisition failed (webcam in use by another tab or unavailable). Using synthetic canvas video fallback:', e);
+                    try {
+                        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    } catch (ae) {
+                        localStream = new MediaStream();
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 640;
+                    canvas.height = 360;
+                    const ctx = canvas.getContext('2d');
+                    let frame = 0;
+                    let hash = 0;
+                    for (let i = 0; i < userName.length; i++) { hash = (hash << 5) - hash + userName.charCodeAt(i); hash |= 0; }
+                    const hue = Math.abs(hash) % 360;
+                    setInterval(() => {
+                        frame++;
+                        ctx.fillStyle = `hsl(${hue}, 65%, 28%)`;
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 36px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(userName, canvas.width / 2, canvas.height / 2 - 10);
+                        ctx.font = '20px sans-serif';
+                        ctx.fillText('⚡ Synthetic Feed (Webcam Shared)', canvas.width / 2, canvas.height / 2 + 30);
+                    }, 1000 / 30);
+                    const synthTrack = canvas.captureStream(30).getVideoTracks()[0];
+                    localStream.addTrack(synthTrack);
                 }
 
                 const hasVideo = localStream.getVideoTracks().length > 0;
@@ -182,6 +252,7 @@
                 btnMuteAudio.classList.add('active');
 
                 let rtcConfig = {
+                    bundlePolicy: 'balanced',
                     iceServers: [
                         { urls: 'stun:' + window.location.hostname + ':3478' },
                         {
@@ -199,21 +270,27 @@
                 pc = new RTCPeerConnection(rtcConfig);
 
                 pc.ontrack = (event) => {
-                    console.log('Received remote track', event.track);
+                    console.log('Received remote track:', event.track.kind, event.track.id);
                     let stream = event.streams[0];
-                    if (!stream) {
-                        let currentStream = remoteVideo.srcObject || new MediaStream();
-                        currentStream.addTrack(event.track);
-                        remoteVideo.srcObject = null;
-                        remoteVideo.srcObject = currentStream;
+                    if (stream) {
+                        if (remoteVideo.srcObject !== stream) {
+                            remoteVideo.srcObject = stream;
+                        }
                     } else {
-                        if (remoteVideo.srcObject !== stream) remoteVideo.srcObject = stream;
+                        if (!remoteVideo.srcObject) {
+                            remoteVideo.srcObject = new MediaStream();
+                        }
+                        if (!remoteVideo.srcObject.getTracks().some(t => t.id === event.track.id)) {
+                            remoteVideo.srcObject.addTrack(event.track);
+                        }
                     }
 
                     remoteVideo.style.display = 'block';
-                    remoteVideo.play().catch(e => {
-                        console.error("WebRTC play error:", e);
-                        if (e.name === 'NotAllowedError') {
+                    if (remoteVideo.paused) {
+                        remoteVideo.play().catch(e => {
+                            if (e.name === 'AbortError') return; // ignore benign play race
+                            console.error("WebRTC play error:", e);
+                            if (e.name === 'NotAllowedError') {
                             const overlay = document.createElement('button');
                             overlay.textContent = '🔊 Натисніть для відтворення (Autoplay заблоковано)';
                             overlay.style.position = 'absolute';
@@ -265,6 +342,13 @@
 
                 signalingWs.send(JSON.stringify({ type: 'ready' }));
 
+                if (pendingRemoteSdp) {
+                    console.log('Applying pending remote SDP that arrived during startConference...');
+                    const sdpToApply = pendingRemoteSdp;
+                    pendingRemoteSdp = null;
+                    await handleRemoteSdp(sdpToApply);
+                }
+
                 btnJoin.textContent = '❌';
                 btnJoin.classList.remove('join-btn');
                 btnJoin.classList.add('decline');
@@ -291,6 +375,8 @@
         }
 
         function resetWebRTC() {
+            pendingRemoteSdp = null;
+            pendingRemoteCandidates = [];
             if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
             if (pc) { pc.close(); pc = null; }
             remoteVideo.srcObject = null;

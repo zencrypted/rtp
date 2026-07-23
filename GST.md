@@ -75,46 +75,48 @@ flowchart TD
 
     %% Ingest Path (Per Peer)
     subgraph Ingest ["Ingest Path (Per Peer)"]
-        WB --> DB[decodebin]
-        DB --> PAD[pad-added]
+        WB -->|src_%u   sink| DB[decodebin]
+        DB -->|src_%u| PAD[pad-added]
 
-        PAD --> VideoIngest[Video Ingest]
-        PAD --> AudioIngest[Audio Ingest]
+        PAD -->|video pad   sink| VC
+        PAD -->|audio pad   sink| AC
 
         subgraph VideoIngest [Video Ingest]
-            VC[videoconvert] --> JQ[v_jitter queue<br>max-buffers=3]
-            JQ --> COMP_SINK[compositor.sink_N<br>Grid Position]
+            VC[videoconvert] -->|src   sink| JQ[v_jitter queue<br>max-buffers=3]
+            JQ -->|src| COMP_SINK[compositor.sink_%u<br>Grid Position]
         end
 
         subgraph AudioIngest [Audio Ingest]
-            AC[audioconvert] --> AR[audioresample]
-            AR --> AJQ[a_jitter queue<br>max-buffers=3]
-            AJQ --> AMIX_SINK[audiomixer.sink_N]
+            AC[audioconvert] -->|src   sink| AR[audioresample]
+            AR -->|src   sink| AJQ[a_jitter queue<br>max-buffers=3]
+            AJQ -->|src| AMIX_SINK[audiomixer.sink_%u]
         end
     end
 
     %% Central Mixing
     subgraph Mixer ["Central Mixer"]
-        COMP[compositor<br>name=mix<br>ignore-inactive-pads=true] --> VCONV[videoconvert → I420]
-        VCONV --> ENC[x264enc<br>ultrafast + zerolatency]
-        ENC --> HTEE[h264_tee]
-        AMIX[audiomixer<br>name=amix<br>ignore-inactive-pads=true] --> ACONV[audioconvert + resample]
-        ACONV --> RAW_A[raw audio tee]
+        COMP[compositor<br>name=mix<br>ignore-inactive-pads=true] -->|src   sink| VCONV[videoconvert → I420]
+        VCONV -->|src   sink| ENC[x264enc<br>ultrafast + zerolatency]
+        ENC -->|src   sink| HTEE[h264_tee]
+        AMIX[audiomixer<br>name=amix<br>ignore-inactive-pads=true] -->|src   sink| ACONV[audioconvert + resample]
+        ACONV -->|src   sink| RAW_A[raw_atee]
     end
 
     %% Broadcast Distribution
     subgraph Broadcast ["Broadcast to All Peers"]
-        HTEE --> VTEE[vtee]
-        VTEE --> VQ[per-peer v_queue<br>leaky 1s] -->|sink_0| WB
-        RAW_A --> ATEE[atee]
-        ATEE --> AQ[per-peer a_queue<br>leaky 1s] -->|sink_1| WB
+        HTEE -->|src_%u   sink| VTEE[vtee]
+        VTEE -->|src_%u   sink| VQ[per-peer v_queue<br>leaky 1s]
+        VQ -->|src   sink_0| WB
+        RAW_A -->|src_%u   sink| ATEE[atee]
+        ATEE -->|src_%u   sink| AQ[per-peer a_queue<br>leaky 1s]
+        AQ -->|src   sink_1| WB
     end
 
     %% Recording
     subgraph Recording ["Recording Output"]
-        HTEE --> MUX[mp4mux / hlssink2]
-        RAW_A --> MUX
-        MUX --> OUT[recording.mp4<br>or HLS segments]
+        HTEE -->|src_%u   video_0| MUX[mp4mux / hlssink2]
+        RAW_A -->|src_%u   audio_0| MUX
+        MUX -->|src| OUT[recording.mp4<br>or HLS segments]
     end
 
     classDef webrtc fill:#90EE90,stroke:#228B22

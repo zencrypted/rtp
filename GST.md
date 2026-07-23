@@ -25,6 +25,67 @@ The binary is spawned as a supervised OS port process by the Erlang
 JSON over UNIX standard I/O pipes, making the media plane fully decoupled from
 the Erlang control plane.
 
+```mermaid
+flowchart TD
+    %% External Peers
+    Peer[WebRTC Peer\nBrowser] <--> WB[webrtcbin]
+
+    %% Ingest Path (Per Peer)
+    subgraph Ingest ["Ingest Path (Per Peer)"]
+        WB --> DB[decodebin]
+        DB --> PAD[pad-added]
+        
+        PAD --> VideoIngest[Video Ingest]
+        PAD --> AudioIngest[Audio Ingest]
+        
+        subgraph VideoIngest [Video Ingest]
+            VC[videoconvert] --> JQ[jitter_queue<br>leaky=2, 250ms]
+            JQ --> COMP_SINK[compositor.sink_N<br>Grid Position]
+        end
+        
+        subgraph AudioIngest [Audio Ingest]
+            AC[audioconvert] --> AR[audioresample]
+            AR --> AMIX_SINK[audiomixer.sink_N]
+        end
+    end
+
+    %% Central Mixing
+    subgraph Mixer ["Central Mixer"]
+        COMP[compositor<br>name=mix<br>ignore-inactive-pads=true] --> VCONV[videoconvert → I420]
+        VCONV --> ENC[x264enc<br>ultrafast + zerolatency]
+        ENC --> HTEE[h264_tee]
+        
+        AMIX[audiomixer<br>name=amix<br>ignore-inactive-pads=true] --> ACONV[audioconvert + resample]
+        ACONV --> RAW_A[raw audio tee]
+    end
+
+    %% Broadcast Distribution
+    subgraph Broadcast ["Broadcast to All Peers"]
+        HTEE --> VTEE[vtee]
+        VTEE --> VQ[per-peer v_queue<br>leaky 1s] --> WB
+        
+        RAW_A --> ATEE[atee]
+        ATEE --> AQ[per-peer a_queue<br>leaky 1s] --> WB
+    end
+
+    %% Recording
+    subgraph Recording ["Recording Output"]
+        HTEE --> MUX[mp4mux / hlssink2]
+        RAW_A --> MUX
+        MUX --> OUT[recording.mp4<br>or HLS segments]
+    end
+
+    classDef webrtc fill:#90EE90,stroke:#228B22
+    classDef mixer fill:#FFB6C1,stroke:#DB7093
+    classDef queue fill:#87CEEB,stroke:#4682B4
+    classDef encoder fill:#FFD700,stroke:#DAA520
+
+    class WB webrtc
+    class COMP,AMIX mixer
+    class JQ,VQ,AQ queue
+    class ENC encoder
+```
+
 ## 2. Data Structures
 
 ### 2.1 `PeerInfo` — Per-Participant Context Record

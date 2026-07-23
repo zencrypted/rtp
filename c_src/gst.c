@@ -26,9 +26,9 @@ typedef struct {
     GstElement *v_decodebin;
     GstElement *a_decodebin;
     GstElement *v_convert;
-    GstElement *v_jitter;       // NEW: dedicated jitter queue
+    GstElement *v_jitter;
     GstElement *a_convert;
-    GstElement *a_jitter;       // NEW: dedicated audio thread queue
+    GstElement *a_jitter;
     GstElement *a_resample;
     gint grid_idx;
 } PeerInfo;

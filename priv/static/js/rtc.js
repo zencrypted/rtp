@@ -271,17 +271,19 @@
 
                 pc.ontrack = (event) => {
                     console.log('Received remote track:', event.track.kind, event.track.id);
-                    let stream = event.streams[0];
+                    let stream = event.streams && event.streams[0];
                     if (stream) {
-                        if (remoteVideo.srcObject !== stream) {
-                            remoteVideo.srcObject = stream;
-                        }
+                        remoteVideo.srcObject = stream;
+                        // Force video element to re-evaluate tracks (crucial if video arrived after audio)
+                        remoteVideo.srcObject = remoteVideo.srcObject;
                     } else {
                         if (!remoteVideo.srcObject) {
                             remoteVideo.srcObject = new MediaStream();
                         }
                         if (!remoteVideo.srcObject.getTracks().some(t => t.id === event.track.id)) {
                             remoteVideo.srcObject.addTrack(event.track);
+                            // Force video element to re-evaluate the stream (needed by some browsers if audio arrived first)
+                            remoteVideo.srcObject = remoteVideo.srcObject;
                         }
                     }
 
@@ -291,29 +293,29 @@
                             if (e.name === 'AbortError') return; // ignore benign play race
                             console.error("WebRTC play error:", e);
                             if (e.name === 'NotAllowedError') {
-                            const overlay = document.createElement('button');
-                            overlay.textContent = '🔊 Натисніть для відтворення (Autoplay заблоковано)';
-                            overlay.style.position = 'absolute';
-                            overlay.style.top = '50%';
-                            overlay.style.left = '50%';
-                            overlay.style.transform = 'translate(-50%, -50%)';
-                            overlay.style.zIndex = '9999';
-                            overlay.style.padding = '15px 25px';
-                            overlay.style.fontSize = '16px';
-                            overlay.style.cursor = 'pointer';
-                            overlay.style.borderRadius = '8px';
-                            overlay.style.backgroundColor = '#1e88e5';
-                            overlay.style.color = '#fff';
-                            overlay.style.border = 'none';
-                            overlay.onclick = () => {
-                                remoteVideo.play();
-                                overlay.remove();
-                            };
-                            // Add position relative to the container if not already
-                            remoteVideo.parentElement.style.position = 'relative';
-                            remoteVideo.parentElement.appendChild(overlay);
-                        }
-                    });
+                                const overlay = document.createElement('button');
+                                overlay.textContent = '🔊 Натисніть для відтворення (Autoplay заблоковано)';
+                                overlay.style.position = 'absolute';
+                                overlay.style.top = '50%';
+                                overlay.style.left = '50%';
+                                overlay.style.transform = 'translate(-50%, -50%)';
+                                overlay.style.zIndex = '9999';
+                                overlay.style.padding = '15px 25px';
+                                overlay.style.fontSize = '16px';
+                                overlay.style.cursor = 'pointer';
+                                overlay.style.borderRadius = '8px';
+                                overlay.style.backgroundColor = '#1e88e5';
+                                overlay.style.color = '#fff';
+                                overlay.style.border = 'none';
+                                overlay.onclick = () => {
+                                    remoteVideo.play();
+                                    overlay.remove();
+                                };
+                                remoteVideo.parentElement.style.position = 'relative';
+                                remoteVideo.parentElement.appendChild(overlay);
+                            }
+                        });
+                    }
                     document.getElementById('streamLabel').textContent = '🔴 Ефір — GStreamer MCU Потік';
                     document.getElementById('streamLabel').style.display = 'block';
                 };

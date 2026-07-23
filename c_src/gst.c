@@ -161,11 +161,9 @@ static void on_ice_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer 
     if (ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED ||
         ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED) {
         g_printerr("DEBUG: Sending force keyframe (IDR) unit for peer %s...\n", peer->peer_id);
-        GstPad *v_src = gst_element_get_static_pad(state.compositor, "src");
-        if (v_src) {
-            GstEvent *key_event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, TRUE, 0);
-            gst_pad_send_event(v_src, key_event);
-            gst_object_unref(v_src);
+        if (state.video_tee) {
+            GstEvent *key_event = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+            gst_element_send_event(state.video_tee, key_event);
         }
     }
 }
@@ -264,6 +262,13 @@ static void setup_peer(const gchar *peer_id) {
 
     gst_bin_add_many(GST_BIN(state.pipeline), webrtc, v_queue, v_cf, a_queue, a_cf, NULL);
 
+    // Sync state after elements are added but BEFORE linking
+    gst_element_sync_state_with_parent(v_queue);
+    gst_element_sync_state_with_parent(v_cf);
+    gst_element_sync_state_with_parent(a_queue);
+    gst_element_sync_state_with_parent(a_cf);
+    gst_element_sync_state_with_parent(webrtc);
+
     // Link downstream mixed video broadcast (vtee) -> v_queue -> v_cf -> webrtcbin sink_0
     GstPad *vtee_src = gst_element_request_pad_simple(state.video_tee, "src_%u");
     GstPad *vqueue_sink = gst_element_get_static_pad(v_queue, "sink");
@@ -312,13 +317,6 @@ static void setup_peer(const gchar *peer_id) {
         }
         g_array_unref(transceivers);
     }
-
-    // Sync state after elements are added and linked
-    gst_element_sync_state_with_parent(v_queue);
-    gst_element_sync_state_with_parent(v_cf);
-    gst_element_sync_state_with_parent(a_queue);
-    gst_element_sync_state_with_parent(a_cf);
-    gst_element_sync_state_with_parent(webrtc);
 
     g_hash_table_insert(state.webrtcbins, g_strdup(peer_id), peer);
 
@@ -712,6 +710,10 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         peer->v_in_queue = in_queue;
         gst_bin_add_many(GST_BIN(state.pipeline), converter, scaler, in_queue, NULL);
 
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(scaler);
+        gst_element_sync_state_with_parent(in_queue);
+
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src = gst_element_get_static_pad(converter, "src");
         GstPad *scale_sink = gst_element_get_static_pad(scaler, "sink");
@@ -724,10 +726,6 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstPadLinkReturn ret3 = gst_pad_link(scale_src, q_sink);
         GstPadLinkReturn ret4 = gst_pad_link(q_src, comp_pad);
         g_printerr("DEBUG: video gst_pad_link results: pad->conv_sink=%d, conv_src->scale_sink=%d, scale_src->q_sink=%d, q_src->comp_pad=%d\n", ret1, ret2, ret3, ret4);
-
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(scaler);
-        gst_element_sync_state_with_parent(in_queue);
 
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
@@ -754,6 +752,10 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
 
         gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, in_queue, NULL);
 
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(resampler);
+        gst_element_sync_state_with_parent(in_queue);
+
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src = gst_element_get_static_pad(converter, "src");
         GstPad *res_sink = gst_element_get_static_pad(resampler, "sink");
@@ -765,10 +767,6 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gst_pad_link(conv_src, res_sink);
         gst_pad_link(res_src, q_sink);
         gst_pad_link(q_src, amix_pad);
-
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(resampler);
-        gst_element_sync_state_with_parent(in_queue);
 
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
@@ -829,11 +827,11 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
     GstElement *decodebin = gst_element_factory_make("decodebin", NULL);
     gst_bin_add(GST_BIN(state.pipeline), decodebin);
 
+    gst_element_sync_state_with_parent(decodebin);
+
     GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
     gst_pad_link(pad, sinkpad);
     gst_object_unref(sinkpad);
-
-    gst_element_sync_state_with_parent(decodebin);
 
     if (is_video) {
         peer->v_decodebin = decodebin;

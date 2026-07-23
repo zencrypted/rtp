@@ -28,6 +28,7 @@ typedef struct {
     GstElement *v_convert;
     GstElement *v_jitter;       // NEW: dedicated jitter queue
     GstElement *a_convert;
+    GstElement *a_jitter;       // NEW: dedicated audio thread queue
     GstElement *a_resample;
     gint grid_idx;
 } PeerInfo;
@@ -200,11 +201,12 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
         GstElement *jitter = gst_element_factory_make("queue", NULL);
 
+        // Memory Optimization: Use a small, non-leaky thread boundary queue
+        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
         g_object_set(jitter,
-            "leaky", 2,
-            "max-size-time", (guint64)250000000,   // 250ms - tunable for jitter
-            "max-size-buffers", 0,
+            "max-size-buffers", 3,
             "max-size-bytes", 0,
+            "max-size-time", (guint64)0,
             NULL);
 
         peer->v_convert = converter;
@@ -236,25 +238,40 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
 
         GstElement *converter = gst_element_factory_make("audioconvert", NULL);
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
+        GstElement *jitter = gst_element_factory_make("queue", NULL);
+
+        // Small, non-leaky queue to decouple audio decoding thread from audiomixer
+        g_object_set(jitter,
+            "max-size-buffers", 3,
+            "max-size-bytes", 0,
+            "max-size-time", (guint64)0,
+            NULL);
+
         peer->a_convert = converter;
         peer->a_resample = resampler;
+        peer->a_jitter = jitter;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, NULL);
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, jitter, NULL);
 
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
         GstPad *res_sink  = gst_element_get_static_pad(resampler, "sink");
         GstPad *res_src   = gst_element_get_static_pad(resampler, "src");
+        GstPad *j_sink    = gst_element_get_static_pad(jitter, "sink");
+        GstPad *j_src     = gst_element_get_static_pad(jitter, "src");
 
         gst_pad_link(pad, conv_sink);
         gst_pad_link(conv_src, res_sink);
-        gst_pad_link(res_src, amix_pad);
+        gst_pad_link(res_src, j_sink);
+        gst_pad_link(j_src, amix_pad);
 
         gst_element_sync_state_with_parent(converter);
         gst_element_sync_state_with_parent(resampler);
+        gst_element_sync_state_with_parent(jitter);
 
         gst_object_unref(conv_sink); gst_object_unref(conv_src);
         gst_object_unref(res_sink);  gst_object_unref(res_src);
+        gst_object_unref(j_sink);    gst_object_unref(j_src);
     } else {
         gst_caps_unref(caps);
     }
@@ -305,9 +322,13 @@ static void setup_peer(const gchar *peer_id) {
         return;
     }
 
-    // TURN-friendly settings
+    // WebRTC Latency Profile:
+    // - 50ms: Aggressive low-latency. Requires excellent fiber/LAN connections.
+    // - 120ms: Balanced default. Suitable for typical broadband and TURN relay.
+    // - 200ms+: High latency. Recommended for 3G/Mobile networks with high packet jitter.
+    // Note: This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
     g_object_set(webrtc,
-        "latency", 120,                                 // Balanced for TURN + jitter
+        "latency", 120,
         "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
         NULL);
 
@@ -415,6 +436,10 @@ static void cleanup_peer(const gchar *peer_id) {
     if (peer->a_convert) {
         gst_element_set_state(peer->a_convert, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->a_convert);
+    }
+    if (peer->a_jitter) {
+        gst_element_set_state(peer->a_jitter, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_jitter);
     }
     if (peer->a_decodebin) {
         gst_element_set_state(peer->a_decodebin, GST_STATE_NULL);

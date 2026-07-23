@@ -82,8 +82,8 @@
             });
         }
 
-        // Connect Telemetry WebSocket
-        const signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=broadcast');
+        // Connect Telemetry WebSocket (role=broadcast — not a WebRTC peer, no MCU registration)
+        const signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=broadcast&role=broadcast');
         let telemetryPingInterval = null;
 
         signalingWs.onopen = () => {

@@ -27,7 +27,12 @@ init({UserId, RoomId, Role, Token}) ->
         peer_id = PeerId,
         room_pid = RoomPid
     },
-    ok = syn:register(rooms, PeerId, self()),
+    case Role of
+        <<"participant">> ->
+            ok = syn:register(rooms, PeerId, self());
+        _ ->
+            ok  %% broadcast/viewer: not a WebRTC peer, skip syn registration
+    end,
     self() ! send_init_msg,
     {ok, State}.
 
@@ -125,6 +130,12 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State) ->
     PeerId = State#state.peer_id,
-    rtp_coordinator:peer_left(State#state.room_pid, PeerId),
-    syn:unregister(rooms, PeerId),
+    case State#state.role of
+        <<"participant">> ->
+            rtp_coordinator:peer_left(State#state.room_pid, PeerId),
+            syn:unregister(rooms, PeerId);
+        _ ->
+            %% Broadcast/viewer roles are not WebRTC peers — no MCU cleanup needed
+            ok
+    end,
     ok.

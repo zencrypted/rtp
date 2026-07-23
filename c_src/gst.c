@@ -4,6 +4,8 @@
 #include <gst/video/video.h>
 #include <gst/webrtc/webrtc.h>
 #include <gst/sdp/sdp.h>
+#include <gst/app/gstappsink.h>
+#include <gst/app/gstappsrc.h>
 #include <json-glib/json-glib.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,21 +24,35 @@ typedef struct {
 typedef struct {
     gchar *peer_id;
     GstElement *webrtc;
+    /* Outgoing MCU stream → browser */
     GstElement *v_queue;
     GstElement *a_queue;
+    /* Compositor/mixer sink pads (allocated in setup_peer) */
     GstPad *comp_pad;
     GstPad *amix_pad;
+    /* Video ingest: appsrc → videoconvert → videoscale → queue → compositor */
+    GstElement *v_appsrc;
+    GstElement *v_conv_in;
+    GstElement *v_scale_in;
+    GstElement *v_queue_in;
+    /* Video decode: webrtcbin src → decodebin → videoconvert → videoscale → appsink */
     GstElement *v_decodebin;
-    GstElement *a_decodebin;
     GstElement *v_convert;
     GstElement *v_scale;
-    GstElement *v_in_queue;
+    GstElement *v_appsink;
+    /* Audio ingest: appsrc → audioconvert → audioresample → queue → audiomixer */
+    GstElement *a_appsrc;
+    GstElement *a_conv_in;
+    GstElement *a_resample_in;
+    GstElement *a_queue_in;
+    /* Audio decode: webrtcbin src → decodebin → audioconvert → audioresample → appsink */
+    GstElement *a_decodebin;
     GstElement *a_convert;
     GstElement *a_resample;
-    GstElement *a_in_queue;
+    GstElement *a_appsink;
     gint grid_idx;
     gboolean remote_desc_set;
-    gboolean bundled;           /* TRUE when remote SDP uses same ICE ufrag for all mlines (BUNDLE) */
+    gboolean bundled;
     GArray *pending_ice_candidates;
 } PeerInfo;
 
@@ -158,20 +174,8 @@ static void on_ice_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer 
     GstWebRTCICEConnectionState ice_state;
     g_object_get(webrtc, "ice-connection-state", &ice_state, NULL);
     g_printerr("DEBUG: GStreamer ICE connection state for %s: %d\n", peer->peer_id, ice_state);
-    if (ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED ||
-        ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED) {
-        g_printerr("DEBUG: ICE connected for peer %s — requesting IDR keyframe\n", peer->peer_id);
-        /* Send force-key-unit upstream through vtee's sink pad so the event
-           travels correctly through the pipeline toward x264enc */
-        if (state.video_tee) {
-            GstPad *vtee_sink = gst_element_get_static_pad(state.video_tee, "sink");
-            if (vtee_sink) {
-                GstEvent *key_event = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-                gst_pad_send_event(vtee_sink, key_event);
-                gst_object_unref(vtee_sink);
-            }
-        }
-    }
+    /* key-int-max=30 on x264enc already emits IDR frames every second at 30fps.
+       No manual force-key-unit needed here. */
 }
 
 static void on_connection_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer user_data) {
@@ -206,6 +210,44 @@ static void on_remote_description_set(GstPromise *promise, gpointer user_data) {
     }
 
     g_free(peer_id);
+}
+
+// on_camera_sample: appsink callback that bridges decoded camera frames into the
+// main compositor pipeline via appsrc. This decouples the graph so GStreamer
+// never sees the webrtcbin→decodebin→compositor→vtee→webrtcbin cycle.
+static GstFlowReturn on_camera_sample(GstAppSink *sink, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    if (!peer || !peer->v_appsrc) return GST_FLOW_OK;
+
+    GstSample *sample = gst_app_sink_pull_sample(sink);
+    if (!sample) return GST_FLOW_OK;
+
+    GstBuffer *buf = gst_sample_get_buffer(sample);
+    if (buf) {
+        /* Copy buffer — we do not own the one inside the sample */
+        GstBuffer *buf_copy = gst_buffer_copy(buf);
+        gst_app_src_push_buffer(GST_APP_SRC(peer->v_appsrc), buf_copy);
+    }
+    gst_sample_unref(sample);
+    return GST_FLOW_OK;
+}
+
+// on_mic_sample: appsink callback for audio — bridges decoded mic frames into
+// the audiomixer pipeline via a_appsrc, breaking the audio graph cycle.
+static GstFlowReturn on_mic_sample(GstAppSink *sink, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    if (!peer || !peer->a_appsrc) return GST_FLOW_OK;
+
+    GstSample *sample = gst_app_sink_pull_sample(sink);
+    if (!sample) return GST_FLOW_OK;
+
+    GstBuffer *buf = gst_sample_get_buffer(sample);
+    if (buf) {
+        GstBuffer *buf_copy = gst_buffer_copy(buf);
+        gst_app_src_push_buffer(GST_APP_SRC(peer->a_appsrc), buf_copy);
+    }
+    gst_sample_unref(sample);
+    return GST_FLOW_OK;
 }
 
 // Setup webrtcbin for a newly joined peer (Both receiving upstream & broadcasting downstream)
@@ -252,21 +294,158 @@ static void setup_peer(const gchar *peer_id) {
         return;
     }
 
-    // Create queue and capsfilter for video branch
-    GstElement *v_queue = gst_element_factory_make("queue", NULL);
-    g_object_set(v_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
+    // ----------------------------------------------------------------
+    // Pre-allocate the appsrc → compositor path for this peer's camera.
+    // The appsrc acts as the acyclic entry-point for decoded camera frames;
+    // on_camera_sample() pushes frames here from the appsink callback.
+    // This keeps the GStreamer graph acyclic (no loop detected ever).
+    // ----------------------------------------------------------------
+    gint idx = peer->grid_idx;
+    gint w = WIDTH / 2;
+    gint h = HEIGHT / 2;
+    gint x = (idx % 2) * w;
+    gint y = (idx / 2) * h;
 
+    GstElement *v_appsrc = gst_element_factory_make("appsrc", NULL);
+    GstCaps *appsrc_vcaps = gst_caps_new_simple("video/x-raw",
+        "format",    G_TYPE_STRING,         "I420",
+        "width",     G_TYPE_INT,            w,
+        "height",    G_TYPE_INT,            h,
+        "framerate", GST_TYPE_FRACTION,     30, 1,
+        NULL);
+    g_object_set(v_appsrc,
+        "caps",        appsrc_vcaps,
+        "stream-type", 0,   /* GST_APP_STREAM_TYPE_STREAM */
+        "format",      GST_FORMAT_TIME,
+        "is-live",     TRUE,
+        "block",       FALSE,
+        "max-bytes",   (guint64)(3 * (gsize)w * h * 3 / 2),  /* 3 I420 frames */
+        NULL);
+    gst_caps_unref(appsrc_vcaps);
+    peer->v_appsrc = v_appsrc;
+
+    GstElement *v_conv_in  = gst_element_factory_make("videoconvert", NULL);
+    GstElement *v_scale_in = gst_element_factory_make("videoscale",   NULL);
+    GstElement *v_queue_in = gst_element_factory_make("queue",         NULL);
+    g_object_set(v_queue_in, "leaky", 2, "max-size-buffers", 5,
+                 "max-size-bytes", 0, "max-size-time", (guint64)0, NULL);
+    peer->v_conv_in  = v_conv_in;
+    peer->v_scale_in = v_scale_in;
+    peer->v_queue_in = v_queue_in;
+
+    GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
+    peer->comp_pad = comp_pad;
+    g_object_set(comp_pad,
+        "xpos", x, "ypos", y, "width", w, "height", h,
+        "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
+
+    gst_bin_add_many(GST_BIN(state.pipeline), v_appsrc, v_conv_in, v_scale_in, v_queue_in, NULL);
+
+    /* Link fully before syncing state — prevents false loop-detection during sync */
+    {
+        GstPad *as_src  = gst_element_get_static_pad(v_appsrc,  "src");
+        GstPad *co_sink = gst_element_get_static_pad(v_conv_in,  "sink");
+        GstPad *co_src  = gst_element_get_static_pad(v_conv_in,  "src");
+        GstPad *sc_sink = gst_element_get_static_pad(v_scale_in, "sink");
+        GstPad *sc_src  = gst_element_get_static_pad(v_scale_in, "src");
+        GstPad *qu_sink = gst_element_get_static_pad(v_queue_in, "sink");
+        GstPad *qu_src  = gst_element_get_static_pad(v_queue_in, "src");
+
+        gst_pad_link(as_src,  co_sink);
+        gst_pad_link(co_src,  sc_sink);
+        gst_pad_link(sc_src,  qu_sink);
+        gst_pad_link(qu_src,  comp_pad);
+
+        gst_object_unref(as_src);  gst_object_unref(co_sink);
+        gst_object_unref(co_src);  gst_object_unref(sc_sink);
+        gst_object_unref(sc_src);  gst_object_unref(qu_sink);
+        gst_object_unref(qu_src);
+    }
+
+    gst_element_sync_state_with_parent(v_appsrc);
+    gst_element_sync_state_with_parent(v_conv_in);
+    gst_element_sync_state_with_parent(v_scale_in);
+    gst_element_sync_state_with_parent(v_queue_in);
+
+    // ----------------------------------------------------------------
+    // Pre-allocate audio appsrc → audiomixer path (breaks audio graph cycle)
+    // ----------------------------------------------------------------
+    GstElement *a_appsrc    = gst_element_factory_make("appsrc",        NULL);
+    GstElement *a_conv_in   = gst_element_factory_make("audioconvert",  NULL);
+    GstElement *a_resamp_in = gst_element_factory_make("audioresample", NULL);
+    GstElement *a_queue_in  = gst_element_factory_make("queue",         NULL);
+    g_object_set(a_queue_in, "leaky", 2, "max-size-buffers", 10,
+                 "max-size-bytes", 0, "max-size-time", (guint64)0, NULL);
+
+    GstCaps *appsrc_acaps = gst_caps_new_simple("audio/x-raw",
+        "format",   G_TYPE_STRING, "S16LE",
+        "rate",     G_TYPE_INT,    48000,
+        "channels", G_TYPE_INT,    1,
+        "layout",   G_TYPE_STRING, "interleaved",
+        NULL);
+    g_object_set(a_appsrc,
+        "caps",        appsrc_acaps,
+        "stream-type", 0,
+        "format",      GST_FORMAT_TIME,
+        "is-live",     TRUE,
+        "block",       FALSE,
+        "max-bytes",   (guint64)(10 * 48000 * 2),  /* ~10 audio frames */
+        NULL);
+    gst_caps_unref(appsrc_acaps);
+
+    peer->a_appsrc    = a_appsrc;
+    peer->a_conv_in   = a_conv_in;
+    peer->a_resample_in = a_resamp_in;
+    peer->a_queue_in  = a_queue_in;
+
+    GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
+    peer->amix_pad = amix_pad;
+
+    gst_bin_add_many(GST_BIN(state.pipeline), a_appsrc, a_conv_in, a_resamp_in, a_queue_in, NULL);
+    {
+        GstPad *as_src  = gst_element_get_static_pad(a_appsrc,    "src");
+        GstPad *co_sink = gst_element_get_static_pad(a_conv_in,   "sink");
+        GstPad *co_src  = gst_element_get_static_pad(a_conv_in,   "src");
+        GstPad *rs_sink = gst_element_get_static_pad(a_resamp_in, "sink");
+        GstPad *rs_src  = gst_element_get_static_pad(a_resamp_in, "src");
+        GstPad *qu_sink = gst_element_get_static_pad(a_queue_in,  "sink");
+        GstPad *qu_src  = gst_element_get_static_pad(a_queue_in,  "src");
+
+        gst_pad_link(as_src,  co_sink);
+        gst_pad_link(co_src,  rs_sink);
+        gst_pad_link(rs_src,  qu_sink);
+        gst_pad_link(qu_src,  amix_pad);
+
+        gst_object_unref(as_src);  gst_object_unref(co_sink);
+        gst_object_unref(co_src);  gst_object_unref(rs_sink);
+        gst_object_unref(rs_src);  gst_object_unref(qu_sink);
+        gst_object_unref(qu_src);
+    }
+    gst_element_sync_state_with_parent(a_appsrc);
+    gst_element_sync_state_with_parent(a_conv_in);
+    gst_element_sync_state_with_parent(a_resamp_in);
+    gst_element_sync_state_with_parent(a_queue_in);
+
+    // ----------------------------------------------------------------
+    // Outgoing MCU stream: vtee → v_queue → v_cf → webrtcbin sink_0
+    // ----------------------------------------------------------------
+    GstElement *v_queue = gst_element_factory_make("queue", NULL);
+    g_object_set(v_queue, "leaky", 2, "max-size-time", (guint64)1000000000,
+                 "max-size-buffers", 0, "max-size-bytes", 0, NULL);
     GstElement *v_cf = gst_element_factory_make("capsfilter", NULL);
-    GstCaps *v_caps = gst_caps_from_string("application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96");
+    GstCaps *v_caps = gst_caps_from_string(
+        "application/x-rtp, media=(string)video, clock-rate=(int)90000,"
+        " encoding-name=(string)H264, payload=(int)96");
     g_object_set(v_cf, "caps", v_caps, NULL);
     gst_caps_unref(v_caps);
 
-    // Create queue and capsfilter for audio branch
     GstElement *a_queue = gst_element_factory_make("queue", NULL);
-    g_object_set(a_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
-
+    g_object_set(a_queue, "leaky", 2, "max-size-time", (guint64)1000000000,
+                 "max-size-buffers", 0, "max-size-bytes", 0, NULL);
     GstElement *a_cf = gst_element_factory_make("capsfilter", NULL);
-    GstCaps *a_caps = gst_caps_from_string("application/x-rtp, media=(string)audio, clock-rate=(int)48000, encoding-name=(string)OPUS, payload=(int)111");
+    GstCaps *a_caps = gst_caps_from_string(
+        "application/x-rtp, media=(string)audio, clock-rate=(int)48000,"
+        " encoding-name=(string)OPUS, payload=(int)111");
     g_object_set(a_cf, "caps", a_caps, NULL);
     gst_caps_unref(a_caps);
 
@@ -274,15 +453,12 @@ static void setup_peer(const gchar *peer_id) {
     peer->a_queue = a_queue;
 
     gst_bin_add_many(GST_BIN(state.pipeline), webrtc, v_queue, v_cf, a_queue, a_cf, NULL);
-
-    // Sync state after elements are added but BEFORE linking
     gst_element_sync_state_with_parent(v_queue);
     gst_element_sync_state_with_parent(v_cf);
     gst_element_sync_state_with_parent(a_queue);
     gst_element_sync_state_with_parent(a_cf);
     gst_element_sync_state_with_parent(webrtc);
 
-    // Link downstream mixed video broadcast (vtee) -> v_queue -> v_cf -> webrtcbin sink_0
     GstPad *vtee_src = gst_element_request_pad_simple(state.video_tee, "src_%u");
     GstPad *vqueue_sink = gst_element_get_static_pad(v_queue, "sink");
     GstPad *vqueue_src = gst_element_get_static_pad(v_queue, "src");
@@ -386,15 +562,11 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_bin_remove(GST_BIN(state.pipeline), peer->a_queue);
     }
 
-    // 3. Disconnect and release compositor pad, remove dynamic video converter and decodebin
-    if (peer->comp_pad) {
-        GstPad *peer_pad = gst_pad_get_peer(peer->comp_pad);
-        if (peer_pad) {
-            gst_pad_unlink(peer_pad, peer->comp_pad);
-            gst_object_unref(peer_pad);
-        }
-        gst_element_release_request_pad(state.compositor, peer->comp_pad);
-        gst_object_unref(peer->comp_pad);
+    // 3. Tear down appsink (decode side) — stop feeding the appsrc
+    if (peer->v_appsink) {
+        gst_app_sink_set_callbacks(GST_APP_SINK(peer->v_appsink), NULL, NULL, NULL);
+        gst_element_set_state(peer->v_appsink, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_appsink);
     }
     if (peer->v_scale) {
         gst_element_set_state(peer->v_scale, GST_STATE_NULL);
@@ -404,24 +576,42 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_element_set_state(peer->v_convert, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->v_convert);
     }
-    if (peer->v_in_queue) {
-        gst_element_set_state(peer->v_in_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(state.pipeline), peer->v_in_queue);
-    }
     if (peer->v_decodebin) {
         gst_element_set_state(peer->v_decodebin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->v_decodebin);
     }
-
-    // 4. Disconnect and release audiomixer pad, remove dynamic audio resampler, converter and decodebin
-    if (peer->amix_pad) {
-        GstPad *peer_pad = gst_pad_get_peer(peer->amix_pad);
+    // 3b. Tear down appsrc path (compositor side)
+    if (peer->comp_pad) {
+        GstPad *peer_pad = gst_pad_get_peer(peer->comp_pad);
         if (peer_pad) {
-            gst_pad_unlink(peer_pad, peer->amix_pad);
+            gst_pad_unlink(peer_pad, peer->comp_pad);
             gst_object_unref(peer_pad);
         }
-        gst_element_release_request_pad(state.audiomixer, peer->amix_pad);
-        gst_object_unref(peer->amix_pad);
+        gst_element_release_request_pad(state.compositor, peer->comp_pad);
+        gst_object_unref(peer->comp_pad);
+    }
+    if (peer->v_queue_in) {
+        gst_element_set_state(peer->v_queue_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_queue_in);
+    }
+    if (peer->v_scale_in) {
+        gst_element_set_state(peer->v_scale_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_scale_in);
+    }
+    if (peer->v_conv_in) {
+        gst_element_set_state(peer->v_conv_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_conv_in);
+    }
+    if (peer->v_appsrc) {
+        gst_element_set_state(peer->v_appsrc, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_appsrc);
+    }
+
+    // 4. Tear down audio decode path (appsink side)
+    if (peer->a_appsink) {
+        gst_app_sink_set_callbacks(GST_APP_SINK(peer->a_appsink), NULL, NULL, NULL);
+        gst_element_set_state(peer->a_appsink, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_appsink);
     }
     if (peer->a_resample) {
         gst_element_set_state(peer->a_resample, GST_STATE_NULL);
@@ -431,13 +621,35 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_element_set_state(peer->a_convert, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->a_convert);
     }
-    if (peer->a_in_queue) {
-        gst_element_set_state(peer->a_in_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(state.pipeline), peer->a_in_queue);
-    }
     if (peer->a_decodebin) {
         gst_element_set_state(peer->a_decodebin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->a_decodebin);
+    }
+    // 4b. Tear down audio appsrc path (audiomixer side)
+    if (peer->amix_pad) {
+        GstPad *peer_pad = gst_pad_get_peer(peer->amix_pad);
+        if (peer_pad) {
+            gst_pad_unlink(peer_pad, peer->amix_pad);
+            gst_object_unref(peer_pad);
+        }
+        gst_element_release_request_pad(state.audiomixer, peer->amix_pad);
+        gst_object_unref(peer->amix_pad);
+    }
+    if (peer->a_queue_in) {
+        gst_element_set_state(peer->a_queue_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_queue_in);
+    }
+    if (peer->a_resample_in) {
+        gst_element_set_state(peer->a_resample_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_resample_in);
+    }
+    if (peer->a_conv_in) {
+        gst_element_set_state(peer->a_conv_in, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_conv_in);
+    }
+    if (peer->a_appsrc) {
+        gst_element_set_state(peer->a_appsrc, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_appsrc);
     }
 
     // 5. Remove webrtcbin
@@ -701,95 +913,119 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
 
     if (g_str_has_prefix(name, "video")) {
         gst_caps_unref(caps);
-        g_printerr("DEBUG: Linking video pad to compositor for peer: %s\n", peer->peer_id);
+        g_printerr("DEBUG: Linking decoded video pad via appsink bridge for peer: %s\n", peer->peer_id);
 
-        // Request compositor sink pad and lay it out in the grid
-        GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
-        peer->comp_pad = comp_pad; // Keep ownership reference for cleanup
-
-        gint idx = peer->grid_idx;
+        /* Route: decoded pad → videoconvert → videoscale → appsink
+           on_camera_sample() pulls frames and pushes into peer->v_appsrc (compositor side).
+           This breaks the graph cycle: appsink and appsrc have no pad connection
+           in GStreamer's graph, so loop detection never fires. */
         gint w = WIDTH / 2;
         gint h = HEIGHT / 2;
-        gint x = (idx % 2) * w;
-        gint y = (idx / 2) * h;
-
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint) (idx + 10), "sizing-policy", 1, NULL);
-        g_printerr("DEBUG: Linked video pad to compositor quadrant position (%d, %d) with zorder %u\n", x, y, idx + 10);
 
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
-        GstElement *scaler = gst_element_factory_make("videoscale", NULL);
-        GstElement *in_queue = gst_element_factory_make("queue", NULL);
-        g_object_set(in_queue, "leaky", 2, "max-size-buffers", 5, "max-size-bytes", 0, "max-size-time", (guint64) 0, NULL);
+        GstElement *scaler    = gst_element_factory_make("videoscale",   NULL);
+        GstElement *appsink   = gst_element_factory_make("appsink",      NULL);
+
+        GstCaps *sink_caps = gst_caps_new_simple("video/x-raw",
+            "format", G_TYPE_STRING, "I420",
+            "width",  G_TYPE_INT,    w,
+            "height", G_TYPE_INT,    h,
+            NULL);
+        g_object_set(appsink,
+            "caps",         sink_caps,
+            "emit-signals", TRUE,
+            "sync",         FALSE,
+            "max-buffers",  3,
+            "drop",         TRUE,
+            NULL);
+        gst_caps_unref(sink_caps);
 
         peer->v_convert = converter;
-        peer->v_scale = scaler;
-        peer->v_in_queue = in_queue;
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, scaler, in_queue, NULL);
+        peer->v_scale   = scaler;
+        peer->v_appsink = appsink;
 
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(scaler);
-        gst_element_sync_state_with_parent(in_queue);
+        /* Connect callback BEFORE adding to pipeline */
+        GstAppSinkCallbacks cbs = { NULL, NULL, on_camera_sample };
+        gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &cbs, peer, NULL);
 
-        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *conv_src = gst_element_get_static_pad(converter, "src");
-        GstPad *scale_sink = gst_element_get_static_pad(scaler, "sink");
-        GstPad *scale_src = gst_element_get_static_pad(scaler, "src");
-        GstPad *q_sink = gst_element_get_static_pad(in_queue, "sink");
-        GstPad *q_src = gst_element_get_static_pad(in_queue, "src");
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, scaler, appsink, NULL);
 
-        GstPadLinkReturn ret1 = gst_pad_link(pad, conv_sink);
-        GstPadLinkReturn ret2 = gst_pad_link(conv_src, scale_sink);
-        GstPadLinkReturn ret3 = gst_pad_link(scale_src, q_sink);
-        GstPadLinkReturn ret4 = gst_pad_link(q_src, comp_pad);
-        g_printerr("DEBUG: video gst_pad_link results: pad->conv_sink=%d, conv_src->scale_sink=%d, scale_src->q_sink=%d, q_src->comp_pad=%d\n", ret1, ret2, ret3, ret4);
+        /* Link fully before syncing state */
+        GstPad *conv_sink  = gst_element_get_static_pad(converter, "sink");
+        GstPad *conv_src   = gst_element_get_static_pad(converter, "src");
+        GstPad *scale_sink = gst_element_get_static_pad(scaler,    "sink");
+        GstPad *scale_src  = gst_element_get_static_pad(scaler,    "src");
+        GstPad *asink_pad  = gst_element_get_static_pad(appsink,   "sink");
+
+        GstPadLinkReturn r1 = gst_pad_link(pad,       conv_sink);
+        GstPadLinkReturn r2 = gst_pad_link(conv_src,  scale_sink);
+        GstPadLinkReturn r3 = gst_pad_link(scale_src, asink_pad);
+        g_printerr("DEBUG: video appsink link: pad->conv=%d conv->scale=%d scale->appsink=%d (0=OK)\n",
+                   r1, r2, r3);
 
         gst_object_unref(conv_sink);
         gst_object_unref(conv_src);
         gst_object_unref(scale_sink);
         gst_object_unref(scale_src);
-        gst_object_unref(q_sink);
-        gst_object_unref(q_src);
+        gst_object_unref(asink_pad);
+
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(scaler);
+        gst_element_sync_state_with_parent(appsink);
 
     } else if (g_str_has_prefix(name, "audio")) {
         gst_caps_unref(caps);
-        g_printerr("DEBUG: Linking audio pad to audiomixer for peer: %s\n", peer->peer_id);
+        g_printerr("DEBUG: Linking decoded audio pad via appsink bridge for peer: %s\n", peer->peer_id);
 
-        GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
-        peer->amix_pad = amix_pad; // Keep ownership reference for cleanup
-
-        GstElement *converter = gst_element_factory_make("audioconvert", NULL);
+        /* Route: decoded pad → audioconvert → audioresample → appsink
+           on_mic_sample() pulls frames and pushes into peer->a_appsrc. */
+        GstElement *converter = gst_element_factory_make("audioconvert",  NULL);
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
-        GstElement *in_queue = gst_element_factory_make("queue", NULL);
-        g_object_set(in_queue, "leaky", 2, "max-size-buffers", 5, "max-size-bytes", 0, "max-size-time", (guint64) 0, NULL);
+        GstElement *appsink   = gst_element_factory_make("appsink",       NULL);
+
+        GstCaps *sink_caps = gst_caps_new_simple("audio/x-raw",
+            "format",   G_TYPE_STRING, "S16LE",
+            "rate",     G_TYPE_INT,    48000,
+            "channels", G_TYPE_INT,    1,
+            "layout",   G_TYPE_STRING, "interleaved",
+            NULL);
+        g_object_set(appsink,
+            "caps",         sink_caps,
+            "emit-signals", TRUE,
+            "sync",         FALSE,
+            "max-buffers",  5,
+            "drop",         TRUE,
+            NULL);
+        gst_caps_unref(sink_caps);
 
         peer->a_convert = converter;
         peer->a_resample = resampler;
-        peer->a_in_queue = in_queue;
+        peer->a_appsink  = appsink;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, in_queue, NULL);
+        GstAppSinkCallbacks acbs = { NULL, NULL, on_mic_sample };
+        gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &acbs, peer, NULL);
+
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, appsink, NULL);
+
+        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
+        GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
+        GstPad *res_sink  = gst_element_get_static_pad(resampler, "sink");
+        GstPad *res_src   = gst_element_get_static_pad(resampler, "src");
+        GstPad *asink_pad = gst_element_get_static_pad(appsink,   "sink");
+
+        GstPadLinkReturn r1 = gst_pad_link(pad,      conv_sink);
+        GstPadLinkReturn r2 = gst_pad_link(conv_src, res_sink);
+        GstPadLinkReturn r3 = gst_pad_link(res_src,  asink_pad);
+        g_printerr("DEBUG: audio appsink link: pad->conv=%d conv->res=%d res->appsink=%d (0=OK)\n",
+                   r1, r2, r3);
+
+        gst_object_unref(conv_sink); gst_object_unref(conv_src);
+        gst_object_unref(res_sink);  gst_object_unref(res_src);
+        gst_object_unref(asink_pad);
 
         gst_element_sync_state_with_parent(converter);
         gst_element_sync_state_with_parent(resampler);
-        gst_element_sync_state_with_parent(in_queue);
-
-        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *conv_src = gst_element_get_static_pad(converter, "src");
-        GstPad *res_sink = gst_element_get_static_pad(resampler, "sink");
-        GstPad *res_src = gst_element_get_static_pad(resampler, "src");
-        GstPad *q_sink = gst_element_get_static_pad(in_queue, "sink");
-        GstPad *q_src = gst_element_get_static_pad(in_queue, "src");
-
-        gst_pad_link(pad, conv_sink);
-        gst_pad_link(conv_src, res_sink);
-        gst_pad_link(res_src, q_sink);
-        gst_pad_link(q_src, amix_pad);
-
-        gst_object_unref(conv_sink);
-        gst_object_unref(conv_src);
-        gst_object_unref(res_sink);
-        gst_object_unref(res_src);
-        gst_object_unref(q_sink);
-        gst_object_unref(q_src);
+        gst_element_sync_state_with_parent(appsink);
     } else {
         gst_caps_unref(caps);
     }

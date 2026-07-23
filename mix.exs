@@ -50,7 +50,7 @@ defmodule Rtp.MixProject do
 
   defp compile_gst(_) do
     File.mkdir_p!("priv")
-    cmd = "cc -O3 c_src/gst.c -o priv/gst $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-video-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)"
+    cmd = "cc -O3 c_src/gst.c -o priv/gst $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-video-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 gstreamer-app-1.0 json-glib-1.0)"
     case System.shell(cmd) do
       {_, 0} -> :ok
       {output, status} ->

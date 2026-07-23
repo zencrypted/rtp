@@ -14,7 +14,6 @@
 init({UserId, RoomId, Role, Token}) ->
     PeerId = <<"peer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
     {ok, RoomPid} = rtp_coordinator:ensure_started(RoomId),
-    rtp_token:cleanup_user(UserId, RoomId),
     case Token of
         undefined -> ok;
         <<>> -> ok;
@@ -27,12 +26,7 @@ init({UserId, RoomId, Role, Token}) ->
         peer_id = PeerId,
         room_pid = RoomPid
     },
-    case Role of
-        <<"participant">> ->
-            ok = syn:register(rooms, PeerId, self());
-        _ ->
-            ok  %% broadcast/viewer: not a WebRTC peer, skip syn registration
-    end,
+    ok = syn:register(rooms, PeerId, self()),
     self() ! send_init_msg,
     {ok, State}.
 
@@ -118,10 +112,6 @@ handle_info({peer_left, PeerId}, State) ->
     Payload = jsone:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
     {push, {text, Payload}, State};
 
-handle_info(reset_webrtc, State) ->
-    Payload = jsone:encode(#{<<"type">> => <<"reset_webrtc">>}),
-    {push, {text, Payload}, State};
-
 handle_info({send_payload, Payload}, State) ->
     {push, {text, Payload}, State};
 
@@ -130,12 +120,6 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, State) ->
     PeerId = State#state.peer_id,
-    case State#state.role of
-        <<"participant">> ->
-            rtp_coordinator:peer_left(State#state.room_pid, PeerId),
-            syn:unregister(rooms, PeerId);
-        _ ->
-            %% Broadcast/viewer roles are not WebRTC peers — no MCU cleanup needed
-            ok
-    end,
+    rtp_coordinator:peer_left(State#state.room_pid, PeerId),
+    syn:unregister(rooms, PeerId),
     ok.

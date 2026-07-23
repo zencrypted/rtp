@@ -60,9 +60,9 @@ handle_call({get_peers, RoomId}, _From, State) ->
     {reply, Peers, State};
 
 handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
-    {Port, NewPorts, StartedAt, NewStartedAt, IsNewPort} = case maps:find(RoomId, State#state.ports) of
+    {Port, NewPorts, StartedAt, NewStartedAt} = case maps:find(RoomId, State#state.ports) of
         {ok, P} ->
-            {P, State#state.ports, maps:get(RoomId, State#state.room_started_at), State#state.room_started_at, false};
+            {P, State#state.ports, maps:get(RoomId, State#state.room_started_at), State#state.room_started_at};
         error ->
             Now = erlang:system_time(millisecond),
             Binary = filename:absname(find_binary()),
@@ -71,6 +71,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
                 _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId))
             end,
             filelib:ensure_dir(OutDir ++ "/"),
+            os:cmd("rm -f " ++ OutDir ++ "/*"),
             error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutDir]),
             HlsFormat = application:get_env(rtp, hls_format, ts),
             FormatStr = atom_to_list(HlsFormat),
@@ -89,22 +90,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
                     {"GST_PLUGIN_FEATURE_FILTER", "opengl:0,applemedia:0"}
                 ]}
             ]),
-            {P, maps:put(RoomId, P, State#state.ports), Now, maps:put(RoomId, Now, State#state.room_started_at), true}
-    end,
-
-    ExistingPeers = maps:get(RoomId, State#state.room_peers, []),
-    case IsNewPort of
-        true ->
-            lists:foreach(fun(ExistingPeerId) ->
-                if ExistingPeerId =/= PeerId ->
-                    send_to_port(Port, #{
-                        <<"type">> => <<"peer_joined">>,
-                        <<"peer_id">> => ExistingPeerId
-                    });
-                true -> ok
-                end
-            end, ExistingPeers);
-        false -> ok
+            {P, maps:put(RoomId, P, State#state.ports), Now, maps:put(RoomId, Now, State#state.room_started_at)}
     end,
 
     send_to_port(Port, #{
@@ -224,12 +210,6 @@ handle_info({Port, {exit_status, Status}}, State) ->
         _ ->
             NewPorts = maps:remove(RoomId, State#state.ports),
             Peers = maps:get(RoomId, State#state.room_peers, []),
-            lists:foreach(fun(PeerId) ->
-                case syn:lookup(rooms, PeerId) of
-                    {Pid, _} -> Pid ! reset_webrtc;
-                    undefined -> ok
-                end
-            end, Peers),
             NewPeerRooms = lists:foldl(fun(P, M) -> maps:remove(P, M) end, State#state.peer_rooms, Peers),
             NewRoomPeers = maps:remove(RoomId, State#state.room_peers),
             {noreply, State#state{
@@ -296,16 +276,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Helpers
 
 send_to_port(Port, Map) ->
-    SanitizedMap = maps:map(fun
-        (<<"peer_id">>, V) -> to_bin(V);
-        (_K, V) -> V
-    end, Map),
-    Json = jsone:encode(SanitizedMap),
+    Json = jsone:encode(Map),
     port_command(Port, [Json, <<"\n">>]).
-
-to_bin(V) when is_binary(V) -> V;
-to_bin(V) when is_list(V) -> list_to_binary(V);
-to_bin(V) -> list_to_binary(io_lib:format("~w", [V])).
 
 notify_room_info(RoomId, StartedAt, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),

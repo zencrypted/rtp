@@ -1,8 +1,6 @@
 -module(rtp_token).
--export([init_table/0, issue/2, validate/1, update_device/2, cleanup_user/2]).
+-export([init_table/0, issue/2, validate/1, update_device/2]).
 -include("rtp_token.hrl").
-
--define(DEFAULT_TTL, 180). % seconds default token TTL
 
 init_table() ->
     case ets:info(rtp_tokens) of
@@ -16,8 +14,7 @@ issue(User, Room) ->
     init_table(),
     Token = n2o_secret:sid(os:timestamp()),
     Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-    Ttl = application:get_env(rtp, token_ttl, ?DEFAULT_TTL),
-    Expiry = Now + Ttl, % token TTL seconds
+    Expiry = Now + 180, % 3 minutes (180 seconds)
     Record = #rtp_token{
         token = Token,
         user = case is_binary(User) of true -> User; false -> list_to_binary(User) end,
@@ -52,11 +49,3 @@ update_device(Token, Device) ->
         [] ->
             {error, not_found}
     end.
-%% Clean up stale tokens for a user/room
-cleanup_user(User, Room) ->
-    init_table(),
-    Pattern = #rtp_token{user = case is_binary(User) of true -> User; false -> list_to_binary(User) end,
-                        room = case is_binary(Room) of true -> Room; false -> list_to_binary(Room) end,
-                        token = '_', device = '_', expiry = '_'},
-    ets:match_delete(rtp_tokens, Pattern),
-    ok.

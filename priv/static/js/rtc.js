@@ -60,7 +60,7 @@
         let localStream = null;
         let peerId      = null;
         let pingInterval= null;
-        let autoJoin    = localStorage.getItem('rtp_joined') === 'true';
+        let autoJoin    = localStorage.getItem('rtp_joined') !== 'false';
         let pendingRemoteSdp = null;
         let pendingRemoteCandidates = [];
 
@@ -271,52 +271,49 @@
 
                 pc.ontrack = (event) => {
                     console.log('Received remote track:', event.track.kind, event.track.id);
-                    let stream = event.streams && event.streams[0];
-                    if (stream) {
+
+                    // Assign the MediaStream only once (on first track event or if unset)
+                    const stream = event.streams && event.streams[0];
+                    if (stream && remoteVideo.srcObject !== stream) {
                         remoteVideo.srcObject = stream;
-                        // Force video element to re-evaluate tracks (crucial if video arrived after audio)
-                        remoteVideo.srcObject = remoteVideo.srcObject;
-                    } else {
-                        if (!remoteVideo.srcObject) {
-                            remoteVideo.srcObject = new MediaStream();
-                        }
-                        if (!remoteVideo.srcObject.getTracks().some(t => t.id === event.track.id)) {
-                            remoteVideo.srcObject.addTrack(event.track);
-                            // Force video element to re-evaluate the stream (needed by some browsers if audio arrived first)
-                            remoteVideo.srcObject = remoteVideo.srcObject;
-                        }
+                        console.log('remoteVideo.srcObject assigned, tracks:', stream.getTracks().map(t => t.kind));
                     }
 
                     remoteVideo.style.display = 'block';
-                    if (remoteVideo.paused) {
-                        remoteVideo.play().catch(e => {
-                            if (e.name === 'AbortError') return; // ignore benign play race
-                            console.error("WebRTC play error:", e);
-                            if (e.name === 'NotAllowedError') {
-                                const overlay = document.createElement('button');
-                                overlay.textContent = '🔊 Натисніть для відтворення (Autoplay заблоковано)';
-                                overlay.style.position = 'absolute';
-                                overlay.style.top = '50%';
-                                overlay.style.left = '50%';
-                                overlay.style.transform = 'translate(-50%, -50%)';
-                                overlay.style.zIndex = '9999';
-                                overlay.style.padding = '15px 25px';
-                                overlay.style.fontSize = '16px';
-                                overlay.style.cursor = 'pointer';
-                                overlay.style.borderRadius = '8px';
-                                overlay.style.backgroundColor = '#1e88e5';
-                                overlay.style.color = '#fff';
-                                overlay.style.border = 'none';
-                                overlay.onclick = () => {
-                                    remoteVideo.play();
-                                    overlay.remove();
-                                };
-                                remoteVideo.parentElement.style.position = 'relative';
-                                remoteVideo.parentElement.appendChild(overlay);
-                            }
-                        });
+
+                    // Trigger play unconditionally — mute only if autoplay is blocked
+                    if (event.track.kind === 'video') {
+                        const doPlay = () => {
+                            remoteVideo.play().then(() => {
+                                console.log('remoteVideo.play() resolved, readyState:', remoteVideo.readyState);
+                            }).catch(e => {
+                                if (e.name === 'AbortError') return;
+                                console.warn('remoteVideo autoplay blocked:', e.name, '— muting and retrying');
+                                if (e.name === 'NotAllowedError') {
+                                    // Mute and retry — show button to unmute
+                                    remoteVideo.muted = true;
+                                    remoteVideo.play().catch(() => {});
+                                    const overlay = document.createElement('button');
+                                    overlay.id = 'unmuteOverlay';
+                                    overlay.textContent = '🔊 Click to enable audio';
+                                    overlay.style.cssText = 'position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 22px;font-size:14px;cursor:pointer;border-radius:8px;background:rgba(30,136,229,0.9);color:#fff;border:none;';
+                                    overlay.onclick = () => { remoteVideo.muted = false; overlay.remove(); };
+                                    if (!document.getElementById('unmuteOverlay')) {
+                                        remoteVideo.parentElement.style.position = 'relative';
+                                        remoteVideo.parentElement.appendChild(overlay);
+                                    }
+                                }
+                            });
+                        };
+
+                        if (event.track.readyState === 'live') {
+                            doPlay();
+                        } else {
+                            event.track.addEventListener('unmute', doPlay, { once: true });
+                        }
                     }
-                    document.getElementById('streamLabel').textContent = '🔴 Ефір — GStreamer MCU Потік';
+
+                    document.getElementById('streamLabel').textContent = '🔴 Live — GStreamer MCU Stream';
                     document.getElementById('streamLabel').style.display = 'block';
                 };
 
@@ -423,6 +420,9 @@
                 try {
                     const stats = await pc.getStats();
                     stats.forEach(report => {
+                        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                            console.log(`[WebRTC Stats] Video -> packetsReceived: ${report.packetsReceived}, bytesReceived: ${report.bytesReceived}, framesDecoded: ${report.framesDecoded || 0}, keyframesDecoded: ${report.keyFramesDecoded || 0}`);
+                        }
                         if (report.type === 'remote-inbound-rtp') {
                             if (report.roundTripTime !== undefined) {
                                 document.getElementById('rttVal').textContent = Math.round(report.roundTripTime * 1000) + ' ms';

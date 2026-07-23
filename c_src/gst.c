@@ -160,12 +160,25 @@ static void on_ice_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer 
     g_printerr("DEBUG: GStreamer ICE connection state for %s: %d\n", peer->peer_id, ice_state);
     if (ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED ||
         ice_state == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED) {
-        g_printerr("DEBUG: Sending force keyframe (IDR) unit for peer %s...\n", peer->peer_id);
+        g_printerr("DEBUG: ICE connected for peer %s — requesting IDR keyframe\n", peer->peer_id);
+        /* Send force-key-unit upstream through vtee's sink pad so the event
+           travels correctly through the pipeline toward x264enc */
         if (state.video_tee) {
-            GstEvent *key_event = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-            gst_element_send_event(state.video_tee, key_event);
+            GstPad *vtee_sink = gst_element_get_static_pad(state.video_tee, "sink");
+            if (vtee_sink) {
+                GstEvent *key_event = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+                gst_pad_send_event(vtee_sink, key_event);
+                gst_object_unref(vtee_sink);
+            }
         }
     }
+}
+
+static void on_connection_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    GstWebRTCPeerConnectionState conn_state;
+    g_object_get(webrtc, "connection-state", &conn_state, NULL);
+    g_printerr("DEBUG: GStreamer peer connection-state for %s: %d\n", peer->peer_id, (int)conn_state);
 }
 
 static gboolean is_wsl(void);
@@ -277,9 +290,10 @@ static void setup_peer(const gchar *peer_id) {
     GstPad *vcf_src = gst_element_get_static_pad(v_cf, "src");
     GstPad *webrtc_vsink = gst_element_request_pad_simple(webrtc, "sink_0");
 
-    gst_pad_link(vtee_src, vqueue_sink);
-    gst_pad_link(vqueue_src, vcf_sink);
-    gst_pad_link(vcf_src, webrtc_vsink);
+    GstPadLinkReturn rv1 = gst_pad_link(vtee_src, vqueue_sink);
+    GstPadLinkReturn rv2 = gst_pad_link(vqueue_src, vcf_sink);
+    GstPadLinkReturn rv3 = gst_pad_link(vcf_src, webrtc_vsink);
+    g_printerr("DEBUG: vtee->vqueue->vcf->webrtc video link results: %d %d %d (0=OK)\n", rv1, rv2, rv3);
 
     gst_object_unref(vtee_src);
     gst_object_unref(vqueue_sink);
@@ -296,9 +310,10 @@ static void setup_peer(const gchar *peer_id) {
     GstPad *acf_src = gst_element_get_static_pad(a_cf, "src");
     GstPad *webrtc_asink = gst_element_request_pad_simple(webrtc, "sink_1");
 
-    gst_pad_link(atee_src, aqueue_sink);
-    gst_pad_link(aqueue_src, acf_sink);
-    gst_pad_link(acf_src, webrtc_asink);
+    GstPadLinkReturn ra1 = gst_pad_link(atee_src, aqueue_sink);
+    GstPadLinkReturn ra2 = gst_pad_link(aqueue_src, acf_sink);
+    GstPadLinkReturn ra3 = gst_pad_link(acf_src, webrtc_asink);
+    g_printerr("DEBUG: atee->aqueue->acf->webrtc audio link results: %d %d %d (0=OK)\n", ra1, ra2, ra3);
 
     gst_object_unref(atee_src);
     gst_object_unref(aqueue_sink);
@@ -324,6 +339,7 @@ static void setup_peer(const gchar *peer_id) {
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(on_incoming_pad), peer);
     g_signal_connect(webrtc, "notify::ice-connection-state", G_CALLBACK(on_ice_state_change), peer);
+    g_signal_connect(webrtc, "notify::connection-state", G_CALLBACK(on_connection_state_change), peer);
 
     // Create SDP Offer
     GstPromise *promise = gst_promise_new_with_change_func(on_offer_created, g_strdup(peer_id), NULL);
@@ -787,7 +803,7 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
     if (!caps) {
         caps = gst_pad_query_caps(pad, NULL);
     }
-    
+
     gboolean is_video = FALSE;
     gboolean is_audio = FALSE;
 
@@ -825,13 +841,10 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
 
     // Create decodebin for track decoding
     GstElement *decodebin = gst_element_factory_make("decodebin", NULL);
-    gst_bin_add(GST_BIN(state.pipeline), decodebin);
-
-    gst_element_sync_state_with_parent(decodebin);
-
-    GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
-    gst_pad_link(pad, sinkpad);
-    gst_object_unref(sinkpad);
+    if (!decodebin) {
+        g_printerr("ERROR: Failed to create decodebin for peer %s\n", peer->peer_id);
+        return;
+    }
 
     if (is_video) {
         peer->v_decodebin = decodebin;
@@ -839,7 +852,21 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
         peer->a_decodebin = decodebin;
     }
 
+    // CRITICAL: connect pad-added BEFORE adding to pipeline and syncing state
+    // to avoid race where pad-added fires before callback is registered
     g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
+
+    gst_bin_add(GST_BIN(state.pipeline), decodebin);
+
+    // Link BEFORE syncing state — data will start flowing only after PLAYING
+    GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
+    GstPadLinkReturn link_ret = gst_pad_link(pad, sinkpad);
+    gst_object_unref(sinkpad);
+    g_printerr("DEBUG: Linked incoming %s pad to decodebin for peer %s: %d (0=OK)\n",
+               is_video ? "video" : "audio", peer->peer_id, link_ret);
+
+    // Sync state LAST — this allows data to flow and triggers pad-added
+    gst_element_sync_state_with_parent(decodebin);
 }
 
 static gboolean on_unix_signal(gpointer user_data) {
@@ -869,9 +896,25 @@ static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) 
             gchar *debug = NULL;
             gst_message_parse_error(message, &err, &debug);
             g_printerr("Error on bus: %s (%s)\n", err->message, debug ? debug : "");
-            g_clear_error(&err);
-            g_free(debug);
-            g_main_loop_quit(state.loop);
+
+            /* Only quit for fatal pipeline errors (output sinks).
+               Ignore transient errors from decodebin/webrtcbin for individual peers
+               (e.g. caps negotiation failure, decoding errors) — these are recoverable. */
+            const gchar *src_name = GST_OBJECT_NAME(GST_MESSAGE_SRC(message));
+            gboolean is_fatal = (src_name == NULL)
+                || g_str_has_prefix(src_name, "hlssink")
+                || g_str_has_prefix(src_name, "filesink")
+                || g_str_has_prefix(src_name, "mux");
+            if (is_fatal) {
+                g_printerr("DEBUG: Fatal pipeline error from %s — quitting\n", src_name ? src_name : "unknown");
+                g_clear_error(&err);
+                g_free(debug);
+                g_main_loop_quit(state.loop);
+            } else {
+                g_printerr("DEBUG: Non-fatal error from element %s — continuing\n", src_name ? src_name : "unknown");
+                g_clear_error(&err);
+                g_free(debug);
+            }
             break;
         }
         default:
@@ -903,11 +946,11 @@ int main(int argc, char *argv[]) {
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
-            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc name=encoder bitrate=4000 "
+            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse config-interval=-1 ! tee name=h264_tee "
+            "h264_tee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! rtph264pay config-interval=-1 aggregate-mode=zero-latency pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "mp4mux name=mux fragment-duration=1000 streamable=true ! filesink location=%s/recording.mp4 "
             "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! mux.video_0 "
             "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
@@ -919,9 +962,9 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! tee name=raw_vtee "
-            "raw_vtee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "raw_vtee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! x264enc name=encoder bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse config-interval=-1 ! rtph264pay config-interval=-1 aggregate-mode=zero-latency pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "raw_vtee. ! queue max-size-buffers=1000 max-size-bytes=0 max-size-time=0 ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=30 ! h265parse ! hlssink2.video "
             "raw_atee. ! queue max-size-buffers=1000 max-size-bytes=0 max-size-time=0 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 playlist-root=\"\" target-duration=2 max-files=0 playlist-length=10",
@@ -932,18 +975,18 @@ int main(int argc, char *argv[]) {
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
-            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=1 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc name=encoder bitrate=4000 "
+            "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse config-interval=-1 ! tee name=h264_tee "
+            "h264_tee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! rtph264pay config-interval=-1 aggregate-mode=zero-latency pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=1 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=100 max-size-bytes=0 max-size-time=1000000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "h264_tee. ! queue max-size-buffers=1000 max-size-bytes=0 max-size-time=0 ! hlssink2.video "
             "raw_atee. ! queue max-size-buffers=1000 max-size-bytes=0 max-size-time=0 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 playlist-root=\"\" target-duration=2 max-files=0 playlist-length=10",
             out_dir, ts, out_dir
         );
     }
-    
+
     GError *error = NULL;
     state.pipeline = gst_parse_launch(pipeline_str, &error);
     g_free(pipeline_str);

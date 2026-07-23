@@ -1,5 +1,3 @@
-//Part 1: Headers, Structs & Helpers
-
 #define GST_USE_UNSTABLE_API
 
 #include <gst/gst.h>
@@ -12,21 +10,19 @@
 #include <signal.h>
 #include <glib-unix.h>
 
-
 #define WIDTH 1920
 #define HEIGHT 1080
 
 typedef struct {
     gchar *peer_id;
     GstElement *webrtc;
-    GstElement *v_queue;        // outgoing to peer
+    GstElement *v_queue;
     GstElement *a_queue;
     GstPad *comp_pad;
     GstPad *amix_pad;
     GstElement *v_decodebin;
     GstElement *a_decodebin;
     GstElement *v_convert;
-    GstElement *v_jitter;       // NEW: dedicated jitter queue
     GstElement *a_convert;
     GstElement *a_resample;
     gint grid_idx;
@@ -44,37 +40,51 @@ typedef struct {
     GstElement *audiomixer;
     GstElement *video_tee;
     GstElement *audio_tee;
-    GHashTable *webrtcbins;
+    GHashTable *webrtcbins; // Maps peer_id (gchar*) -> PeerInfo*
     GMainLoop *loop;
     gboolean grid_slots[16];
+    gint pad_index;
 } RecorderState;
 
 static RecorderState state;
 
-// WSL2 Helpers
+// WSL2 Helper functions
 static gboolean is_wsl(void) {
     static gint in_wsl = -1;
     if (in_wsl != -1) return (gboolean)in_wsl;
-    if (getenv("WSL_DISTRO_NAME") || getenv("WSL_INTEROP")) {
-        in_wsl = 1; return TRUE;
+
+    if (getenv("WSL_DISTRO_NAME") != NULL || getenv("WSL_INTEROP") != NULL) {
+        in_wsl = 1;
+        return TRUE;
     }
+
     FILE *f = fopen("/proc/sys/kernel/osrelease", "r");
     if (f) {
         char buf[256] = {0};
-        if (fgets(buf, sizeof(buf), f) && (strstr(buf, "WSL") || strstr(buf, "microsoft"))) {
-            fclose(f); in_wsl = 1; return TRUE;
+        if (fgets(buf, sizeof(buf), f)) {
+            if (strstr(buf, "WSL") || strstr(buf, "microsoft") || strstr(buf, "Microsoft")) {
+                fclose(f);
+                in_wsl = 1;
+                return TRUE;
+            }
         }
         fclose(f);
     }
-    in_wsl = 0; return FALSE;
+
+    in_wsl = 0;
+    return FALSE;
 }
 
 static gchar *replace_wsl_ip(const gchar *candidate) {
-    if (!candidate || !is_wsl()) return g_strdup(candidate);
+    if (!candidate) return NULL;
+    if (!is_wsl()) return g_strdup(candidate);
+
     const gchar *p = strstr(candidate, " 172.");
     if (!p) return g_strdup(candidate);
+
     const gchar *p_end = strchr(p + 1, ' ');
     if (!p_end) return g_strdup(candidate);
+
     GString *res = g_string_new_len(candidate, p - candidate);
     g_string_append(res, " 127.0.0.1");
     g_string_append(res, p_end);
@@ -87,7 +97,13 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data);
 static void handle_signaling_message(const gchar *json_str);
 
-// Part 2: Signaling & Core Callbacks
+// Write JSON message to stdout (read by Erlang port)
+static void send_to_erlang(JsonNode *root) {
+    gchar *json_str = json_to_string(root, FALSE);
+    printf("%s\n", json_str);
+    fflush(stdout);
+    g_free(json_str);
+}
 
 // IO channel callback for stdin signaling
 static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer data) {
@@ -113,35 +129,43 @@ static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer
     return TRUE;
 }
 
-static void send_to_erlang(JsonNode *root) {
-    gchar *json_str = json_to_string(root, FALSE);
-    printf("%s\n", json_str);
-    fflush(stdout);
-    g_free(json_str);
-}
-
+// Handle offer creation callback
 static void on_offer_created(GstPromise *promise, gpointer user_data) {
-    // (Same as your original - unchanged)
     gchar *peer_id = (gchar *)user_data;
+    g_printerr("DEBUG: on_offer_created promise callback triggered for peer: %s\n", peer_id);
     const GstStructure *reply = gst_promise_get_reply(promise);
+    if (!reply) {
+        g_printerr("DEBUG: promise reply is NULL!\n");
+        return;
+    }
     GstWebRTCSessionDescription *offer = NULL;
     gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, NULL);
-    if (!offer) return;
+    if (!offer) {
+        g_printerr("DEBUG: offer structure is NULL!\n");
+        return;
+    }
+    g_printerr("DEBUG: successfully generated SDP offer\n");
 
     PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
-    if (!peer) return;
+    GstElement *webrtc = peer ? peer->webrtc : NULL;
+    if (!webrtc) return;
 
     GstPromise *local_desc_promise = gst_promise_new();
-    g_signal_emit_by_name(peer->webrtc, "set-local-description", offer, local_desc_promise);
+    g_signal_emit_by_name(webrtc, "set-local-description", offer, local_desc_promise);
+    gst_promise_interrupt(local_desc_promise);
     gst_promise_unref(local_desc_promise);
 
+    // Format SDP offer JSON
     gchar *sdp_text = gst_sdp_message_as_text(offer->sdp);
 
     JsonBuilder *builder = json_builder_new();
     json_builder_begin_object(builder);
-    json_builder_set_member_name(builder, "type"); json_builder_add_string_value(builder, "sdp_offer");
-    json_builder_set_member_name(builder, "peer_id"); json_builder_add_string_value(builder, peer_id);
-    json_builder_set_member_name(builder, "sdp"); json_builder_add_string_value(builder, sdp_text);
+    json_builder_set_member_name(builder, "type");
+    json_builder_add_string_value(builder, "sdp_offer");
+    json_builder_set_member_name(builder, "peer_id");
+    json_builder_add_string_value(builder, peer_id);
+    json_builder_set_member_name(builder, "sdp");
+    json_builder_add_string_value(builder, sdp_text);
     json_builder_end_object(builder);
 
     JsonNode *root = json_builder_get_root(builder);
@@ -153,149 +177,9 @@ static void on_offer_created(GstPromise *promise, gpointer user_data) {
     gst_webrtc_session_description_free(offer);
 }
 
-static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data) {
-    PeerInfo *peer = (PeerInfo *)user_data;
-    gchar *fixed = replace_wsl_ip(candidate);
-
-    JsonBuilder *builder = json_builder_new();
-    json_builder_begin_object(builder);
-    json_builder_set_member_name(builder, "type"); json_builder_add_string_value(builder, "ice_candidate");
-    json_builder_set_member_name(builder, "peer_id"); json_builder_add_string_value(builder, peer->peer_id);
-    json_builder_set_member_name(builder, "candidate");
-    json_builder_begin_object(builder);
-    json_builder_set_member_name(builder, "sdpMLineIndex"); json_builder_add_int_value(builder, mline_idx);
-    json_builder_set_member_name(builder, "candidate"); json_builder_add_string_value(builder, fixed ? fixed : candidate);
-    json_builder_end_object(builder);
-    json_builder_end_object(builder);
-
-    JsonNode *root = json_builder_get_root(builder);
-    send_to_erlang(root);
-
-    json_node_free(root);
-    g_object_unref(builder);
-    if (fixed) g_free(fixed);
-}
-
-// ==================== LOW LATENCY INGEST ====================
-static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_data) {
-    PeerInfo *peer = (PeerInfo *)user_data;
-    GstCaps *caps = gst_pad_get_current_caps(pad);
-    if (!caps) return;
-    const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
-
-    if (g_str_has_prefix(name, "video")) {
-        gst_caps_unref(caps);
-        g_printerr("DEBUG: Linking video for peer: %s\n", peer->peer_id);
-
-        GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
-        peer->comp_pad = comp_pad;
-
-        gint idx = peer->grid_idx;
-        gint w = WIDTH / 2, h = HEIGHT / 2;
-        gint x = (idx % 2) * w, y = (idx / 2) * h;
-
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
-                     "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
-
-        GstElement *converter = gst_element_factory_make("videoconvert", NULL);
-        GstElement *jitter = gst_element_factory_make("queue", NULL);
-
-        g_object_set(jitter,
-            "leaky", 2,
-            "max-size-time", (guint64)250000000,   // 250ms - tunable for jitter
-            "max-size-buffers", 0,
-            "max-size-bytes", 0,
-            NULL);
-
-        peer->v_convert = converter;
-        peer->v_jitter = jitter;
-
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, jitter, NULL);
-
-        GstPad *c_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *c_src  = gst_element_get_static_pad(converter, "src");
-        GstPad *j_sink = gst_element_get_static_pad(jitter, "sink");
-        GstPad *j_src  = gst_element_get_static_pad(jitter, "src");
-
-        gst_pad_link(pad, c_sink);
-        gst_pad_link(c_src, j_sink);
-        gst_pad_link(j_src, comp_pad);
-
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(jitter);
-
-        gst_object_unref(c_sink); gst_object_unref(c_src);
-        gst_object_unref(j_sink); gst_object_unref(j_src);
-
-    } else if (g_str_has_prefix(name, "audio")) {
-        gst_caps_unref(caps);
-        g_printerr("DEBUG: Linking audio for peer: %s\n", peer->peer_id);
-
-        GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
-        peer->amix_pad = amix_pad;
-
-        GstElement *converter = gst_element_factory_make("audioconvert", NULL);
-        GstElement *resampler = gst_element_factory_make("audioresample", NULL);
-        peer->a_convert = converter;
-        peer->a_resample = resampler;
-
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, NULL);
-
-        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
-        GstPad *res_sink  = gst_element_get_static_pad(resampler, "sink");
-        GstPad *res_src   = gst_element_get_static_pad(resampler, "src");
-
-        gst_pad_link(pad, conv_sink);
-        gst_pad_link(conv_src, res_sink);
-        gst_pad_link(res_src, amix_pad);
-
-        gst_element_sync_state_with_parent(converter);
-        gst_element_sync_state_with_parent(resampler);
-
-        gst_object_unref(conv_sink); gst_object_unref(conv_src);
-        gst_object_unref(res_sink);  gst_object_unref(res_src);
-    } else {
-        gst_caps_unref(caps);
-    }
-}
-
-static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data) {
-    PeerInfo *peer = (PeerInfo *)user_data;
-    if (GST_PAD_DIRECTION(pad) != GST_PAD_SRC) return;
-
-    GstCaps *caps = gst_pad_get_current_caps(pad);
-    gboolean is_video = FALSE, is_audio = FALSE;
-
-    if (caps) {
-        const gchar *media = gst_structure_get_string(gst_caps_get_structure(caps, 0), "media");
-        is_video = g_strcmp0(media, "video") == 0;
-        is_audio = g_strcmp0(media, "audio") == 0;
-        gst_caps_unref(caps);
-    }
-
-    if (!is_video && !is_audio) return;
-
-    GstElement *decodebin = gst_element_factory_make("decodebin", NULL);
-    gst_bin_add(GST_BIN(state.pipeline), decodebin);
-
-    GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
-    gst_pad_link(pad, sinkpad);
-    gst_object_unref(sinkpad);
-
-    gst_element_sync_state_with_parent(decodebin);
-
-    if (is_video) peer->v_decodebin = decodebin;
-    else peer->a_decodebin = decodebin;
-
-    g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
-}
-
-
-// ==================== SETUP PEER (Simplified) ====================
+// Setup webrtcbin for a newly joined peer (Both receiving upstream & broadcasting downstream)
 static void setup_peer(const gchar *peer_id) {
-    g_printerr("DEBUG: Setting up peer: %s\n", peer_id);
-
+    g_printerr("DEBUG: Setting up webrtcbin for peer: %s\n", peer_id);
     gchar *bin_name = g_strdup_printf("webrtc_%s", peer_id);
     GstElement *webrtc = gst_element_factory_make("webrtcbin", bin_name);
     g_free(bin_name);
@@ -305,18 +189,14 @@ static void setup_peer(const gchar *peer_id) {
         return;
     }
 
-    // TURN-friendly settings
-    g_object_set(webrtc,
-        "latency", 120,                                 // Balanced for TURN + jitter
-        "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-        NULL);
+    // Set a modest latency to absorb local jitter (0ms can cause severe frame drops)
+    g_object_set(webrtc, "latency", 100, NULL);
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
     peer->webrtc = webrtc;
     peer->grid_idx = -1;
 
-    // Grid slot
     for (int i = 0; i < 16; i++) {
         if (!state.grid_slots[i]) {
             state.grid_slots[i] = TRUE;
@@ -326,56 +206,109 @@ static void setup_peer(const gchar *peer_id) {
     }
     if (peer->grid_idx == -1) peer->grid_idx = 0;
 
-    // Outgoing queues to peer
-    peer->v_queue = gst_element_factory_make("queue", NULL);
-    peer->a_queue = gst_element_factory_make("queue", NULL);
-    g_object_set(peer->v_queue, "leaky", 2, "max-size-time", (guint64)1000000000, NULL);
-    g_object_set(peer->a_queue, "leaky", 2, "max-size-time", (guint64)1000000000, NULL);
+    gchar *vqueue_name = g_strdup_printf("vqueue_%s", peer_id);
+    GstElement *v_queue = gst_element_factory_make("queue", vqueue_name);
+    g_free(vqueue_name);
 
-    gst_bin_add_many(GST_BIN(state.pipeline), webrtc, peer->v_queue, peer->a_queue, NULL);
+    gchar *aqueue_name = g_strdup_printf("aqueue_%s", peer_id);
+    GstElement *a_queue = gst_element_factory_make("queue", aqueue_name);
+    g_free(aqueue_name);
 
-    // Link broadcast (vtee/atee) → this peer
+    peer->v_queue = v_queue;
+    peer->a_queue = a_queue;
+
+    // Set queues as leaky to prevent deadlocking the tee when a client lags or leaves.
+    // Use max-size-time (1 second) instead of buffers, as RTP packets vary in frequency.
+    g_object_set(v_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
+    g_object_set(a_queue, "leaky", 2, "max-size-time", (guint64) 1000000000, "max-size-buffers", 0, "max-size-bytes", 0, NULL);
+
+    gst_bin_add_many(GST_BIN(state.pipeline), webrtc, v_queue, a_queue, NULL);
+
+    // Link downstream mixed video broadcast (vtee) to this peer's webrtcbin
     GstPad *vtee_src = gst_element_request_pad_simple(state.video_tee, "src_%u");
-    GstPad *vqueue_sink = gst_element_get_static_pad(peer->v_queue, "sink");
-    GstPad *vqueue_src = gst_element_get_static_pad(peer->v_queue, "src");
+    GstPad *vqueue_sink = gst_element_get_static_pad(v_queue, "sink");
+    GstPad *vqueue_src = gst_element_get_static_pad(v_queue, "src");
     GstPad *webrtc_vsink = gst_element_request_pad_simple(webrtc, "sink_0");
 
     gst_pad_link(vtee_src, vqueue_sink);
     gst_pad_link(vqueue_src, webrtc_vsink);
 
-    // Same for audio...
+    gst_object_unref(vtee_src);
+    gst_object_unref(vqueue_sink);
+    gst_object_unref(vqueue_src);
+    gst_object_unref(webrtc_vsink);
+
+    // Link downstream mixed audio broadcast (atee) to this peer's webrtcbin
     GstPad *atee_src = gst_element_request_pad_simple(state.audio_tee, "src_%u");
-    GstPad *aqueue_sink = gst_element_get_static_pad(peer->a_queue, "sink");
-    GstPad *aqueue_src = gst_element_get_static_pad(peer->a_queue, "src");
+    GstPad *aqueue_sink = gst_element_get_static_pad(a_queue, "sink");
+    GstPad *aqueue_src = gst_element_get_static_pad(a_queue, "src");
     GstPad *webrtc_asink = gst_element_request_pad_simple(webrtc, "sink_1");
 
     gst_pad_link(atee_src, aqueue_sink);
     gst_pad_link(aqueue_src, webrtc_asink);
 
-    // Cleanup pads
-    gst_object_unref(vtee_src); gst_object_unref(vqueue_sink); gst_object_unref(vqueue_src); gst_object_unref(webrtc_vsink);
-    gst_object_unref(atee_src); gst_object_unref(aqueue_sink); gst_object_unref(aqueue_src); gst_object_unref(webrtc_asink);
+    gst_object_unref(atee_src);
+    gst_object_unref(aqueue_sink);
+    gst_object_unref(aqueue_src);
+    gst_object_unref(webrtc_asink);
 
-    gst_element_sync_state_with_parent(peer->v_queue);
-    gst_element_sync_state_with_parent(peer->a_queue);
+    // Sync state after elements are added and linked
+    gst_element_sync_state_with_parent(v_queue);
+    gst_element_sync_state_with_parent(a_queue);
     gst_element_sync_state_with_parent(webrtc);
 
     g_hash_table_insert(state.webrtcbins, g_strdup(peer_id), peer);
 
+    // Connect GObject signaling handlers
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(on_incoming_pad), peer);
 
+    // Create SDP Offer
     GstPromise *promise = gst_promise_new_with_change_func(on_offer_created, g_strdup(peer_id), NULL);
     g_signal_emit_by_name(webrtc, "create-offer", NULL, promise);
 }
 
-// ==================== CLEANUP ====================
 static void cleanup_peer(const gchar *peer_id) {
-    g_printerr("DEBUG: Cleaning up peer: %s\n", peer_id);
+    g_printerr("DEBUG: Starting cleanup for peer: %s\n", peer_id);
     PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
-    if (!peer) return;
+    if (!peer) {
+        g_printerr("DEBUG: Peer %s not found for cleanup\n", peer_id);
+        return;
+    }
 
-    // Release compositor and jitter queue
+    // 1. Disconnect and release video tee src pad, remove v_queue
+    if (peer->v_queue) {
+        GstPad *sink = gst_element_get_static_pad(peer->v_queue, "sink");
+        if (sink) {
+            GstPad *vtee_src = gst_pad_get_peer(sink);
+            if (vtee_src) {
+                gst_pad_unlink(vtee_src, sink);
+                gst_element_release_request_pad(state.video_tee, vtee_src);
+                gst_object_unref(vtee_src);
+            }
+            gst_object_unref(sink);
+        }
+        gst_element_set_state(peer->v_queue, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->v_queue);
+    }
+
+    // 2. Disconnect and release audio tee src pad, remove a_queue
+    if (peer->a_queue) {
+        GstPad *sink = gst_element_get_static_pad(peer->a_queue, "sink");
+        if (sink) {
+            GstPad *atee_src = gst_pad_get_peer(sink);
+            if (atee_src) {
+                gst_pad_unlink(atee_src, sink);
+                gst_element_release_request_pad(state.audio_tee, atee_src);
+                gst_object_unref(atee_src);
+            }
+            gst_object_unref(sink);
+        }
+        gst_element_set_state(peer->a_queue, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(state.pipeline), peer->a_queue);
+    }
+
+    // 3. Disconnect and release compositor pad, remove dynamic video converter and decodebin
     if (peer->comp_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->comp_pad);
         if (peer_pad) {
@@ -384,10 +317,6 @@ static void cleanup_peer(const gchar *peer_id) {
         }
         gst_element_release_request_pad(state.compositor, peer->comp_pad);
         gst_object_unref(peer->comp_pad);
-    }
-    if (peer->v_jitter) {
-        gst_element_set_state(peer->v_jitter, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(state.pipeline), peer->v_jitter);
     }
     if (peer->v_convert) {
         gst_element_set_state(peer->v_convert, GST_STATE_NULL);
@@ -398,7 +327,7 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_bin_remove(GST_BIN(state.pipeline), peer->v_decodebin);
     }
 
-    // Disconnect and release audiomixer pad, remove dynamic audio resampler, converter and decodebin
+    // 4. Disconnect and release audiomixer pad, remove dynamic audio resampler, converter and decodebin
     if (peer->amix_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->amix_pad);
         if (peer_pad) {
@@ -421,54 +350,27 @@ static void cleanup_peer(const gchar *peer_id) {
         gst_bin_remove(GST_BIN(state.pipeline), peer->a_decodebin);
     }
 
-    // Disconnect and release video tee src pad, remove v_queue
-    if (peer->v_queue) {
-        GstPad *sink = gst_element_get_static_pad(peer->v_queue, "sink");
-        if (sink) {
-            GstPad *vtee_src = gst_pad_get_peer(sink);
-            if (vtee_src) {
-                gst_pad_unlink(vtee_src, sink);
-                gst_element_release_request_pad(state.video_tee, vtee_src);
-                gst_object_unref(vtee_src);
-            }
-            gst_object_unref(sink);
-        }
-        gst_element_set_state(peer->v_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(state.pipeline), peer->v_queue);
-    }
-
-    // Disconnect and release audio tee src pad, remove a_queue
-    if (peer->a_queue) {
-        GstPad *sink = gst_element_get_static_pad(peer->a_queue, "sink");
-        if (sink) {
-            GstPad *atee_src = gst_pad_get_peer(sink);
-            if (atee_src) {
-                gst_pad_unlink(atee_src, sink);
-                gst_element_release_request_pad(state.audio_tee, atee_src);
-                gst_object_unref(atee_src);
-            }
-            gst_object_unref(sink);
-        }
-        gst_element_set_state(peer->a_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(state.pipeline), peer->a_queue);
-    }
-
+    // 5. Remove webrtcbin
     if (peer->webrtc) {
         gst_element_set_state(peer->webrtc, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(state.pipeline), peer->webrtc);
     }
 
-    if (peer->grid_idx >= 0 && peer->grid_idx < 16)
+    // Free up grid slot
+    if (peer->grid_idx >= 0 && peer->grid_idx < 16) {
         state.grid_slots[peer->grid_idx] = FALSE;
+    }
 
+    // 6. Remove peer from hashtable (triggers free_peer_info)
     g_hash_table_remove(state.webrtcbins, peer_id);
+    g_printerr("DEBUG: Cleaned up peer: %s\n", peer_id);
 }
 
 static void handle_signaling_message(const gchar *json_str) {
-    // Same as your original (unchanged)
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, json_str, -1, NULL)) {
-        g_object_unref(parser); return;
+        g_object_unref(parser);
+        return;
     }
 
     JsonObject *root = json_node_get_object(json_parser_get_root(parser));
@@ -520,10 +422,168 @@ static void handle_signaling_message(const gchar *json_str) {
     g_object_unref(parser);
 }
 
-// ==================== SIGNAL & BUS HANDLERS ====================
+static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    gchar *fixed_candidate = replace_wsl_ip(candidate);
+
+    JsonBuilder *builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "type");
+    json_builder_add_string_value(builder, "ice_candidate");
+    json_builder_set_member_name(builder, "peer_id");
+    json_builder_add_string_value(builder, peer->peer_id);
+
+    json_builder_set_member_name(builder, "candidate");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "sdpMLineIndex");
+    json_builder_add_int_value(builder, mline_idx);
+    json_builder_set_member_name(builder, "candidate");
+    json_builder_add_string_value(builder, fixed_candidate ? fixed_candidate : candidate);
+    json_builder_end_object(builder);
+
+    json_builder_end_object(builder);
+
+    JsonNode *root = json_builder_get_root(builder);
+    send_to_erlang(root);
+
+    json_node_free(root);
+    g_object_unref(builder);
+    if (fixed_candidate) g_free(fixed_candidate);
+}
+
+// Link decoded raw pads into audio and video mixers
+static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) return;
+    const GstStructure *str = gst_caps_get_structure(caps, 0);
+    const gchar *name = gst_structure_get_name(str);
+
+    if (g_str_has_prefix(name, "video")) {
+        gst_caps_unref(caps);
+        g_printerr("DEBUG: Linking video pad to compositor for peer: %s\n", peer->peer_id);
+
+        // Request compositor sink pad and lay it out in the grid
+        GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
+        peer->comp_pad = comp_pad; // Keep ownership reference for cleanup
+
+        gint idx = peer->grid_idx;
+        gint w = WIDTH / 2;
+        gint h = HEIGHT / 2;
+        gint x = (idx % 2) * w;
+        gint y = (idx / 2) * h;
+
+        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, 
+                     "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
+
+        // === NEW: Jitter-absorbing queue + converter ===
+        GstElement *converter = gst_element_factory_make("videoconvert", NULL);
+        GstElement *jitter_queue = gst_element_factory_make("queue", NULL);
+        
+        g_object_set(jitter_queue,
+            "leaky", 2,
+            "max-size-time", (guint64)250000000,   // 250ms - good starting point
+            "max-size-buffers", 0,
+            "max-size-bytes", 0,
+            NULL);
+
+        peer->v_convert = converter;   // reuse existing field for cleanup
+
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, jitter_queue, NULL);
+
+        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
+        GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
+        GstPad *jq_sink   = gst_element_get_static_pad(jitter_queue, "sink");
+        GstPad *jq_src    = gst_element_get_static_pad(jitter_queue, "src");
+
+        GstPadLinkReturn ret1 = gst_pad_link(pad, conv_sink);
+        GstPadLinkReturn ret2 = gst_pad_link(conv_src, jq_sink);
+        GstPadLinkReturn ret3 = gst_pad_link(jq_src, comp_pad);
+
+        g_printerr("DEBUG: video link results: pad->conv=%d conv->jitter=%d jitter->comp=%d\n", 
+                   ret1, ret2, ret3);
+
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(jitter_queue);
+
+        gst_object_unref(conv_sink);
+        gst_object_unref(conv_src);
+        gst_object_unref(jq_sink);
+        gst_object_unref(jq_src);
+
+    } else if (g_str_has_prefix(name, "audio")) {
+        gst_caps_unref(caps);
+        g_printerr("DEBUG: Linking audio pad to audiomixer for peer: %s\n", peer->peer_id);
+
+        GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
+        peer->amix_pad = amix_pad;
+
+        GstElement *converter = gst_element_factory_make("audioconvert", NULL);
+        GstElement *resampler = gst_element_factory_make("audioresample", NULL);
+        peer->a_convert = converter;
+        peer->a_resample = resampler;
+
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, NULL);
+
+        GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
+        GstPad *conv_src = gst_element_get_static_pad(converter, "src");
+        GstPad *res_sink = gst_element_get_static_pad(resampler, "sink");
+        GstPad *res_src = gst_element_get_static_pad(resampler, "src");
+
+        gst_pad_link(pad, conv_sink);
+        gst_pad_link(conv_src, res_sink);
+        gst_pad_link(res_src, amix_pad);
+
+        gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(resampler);
+
+        gst_object_unref(conv_sink);
+        gst_object_unref(conv_src);
+        gst_object_unref(res_sink);
+        gst_object_unref(res_src);
+    } else {
+        gst_caps_unref(caps);
+    }
+}
+
+static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data) {
+    PeerInfo *peer = (PeerInfo *)user_data;
+    if (GST_PAD_DIRECTION(pad) != GST_PAD_SRC) return;
+
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) return;
+    const GstStructure *str = gst_caps_get_structure(caps, 0);
+    const gchar *media = gst_structure_get_string(str, "media");
+    gboolean is_video = (g_strcmp0(media, "video") == 0);
+    gboolean is_audio = (g_strcmp0(media, "audio") == 0);
+    gst_caps_unref(caps);
+
+    if (!is_video && !is_audio) return;
+
+    g_printerr("DEBUG: New incoming track (%s) from peer: %s\n", is_video ? "video" : "audio", peer->peer_id);
+
+    // Create decodebin for track decoding
+    GstElement *decodebin = gst_element_factory_make("decodebin", NULL);
+    gst_bin_add(GST_BIN(state.pipeline), decodebin);
+
+    GstPad *sinkpad = gst_element_get_static_pad(decodebin, "sink");
+    gst_pad_link(pad, sinkpad);
+    gst_object_unref(sinkpad);
+
+    gst_element_sync_state_with_parent(decodebin);
+
+    if (is_video) {
+        peer->v_decodebin = decodebin;
+    } else {
+        peer->a_decodebin = decodebin;
+    }
+
+    g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
+}
+
 static gboolean on_unix_signal(gpointer user_data) {
     gint sig = GPOINTER_TO_INT(user_data);
-    g_printerr("DEBUG: Caught signal %d, sending EOS...\n", sig);
+    g_printerr("DEBUG: Caught signal %d via GLib, sending EOS to mux...\n", sig);
     GstElement *mux = gst_bin_get_by_name(GST_BIN(state.pipeline), "mux");
     if (mux) {
         gst_element_send_event(mux, gst_event_new_eos());
@@ -535,14 +595,14 @@ static gboolean on_unix_signal(gpointer user_data) {
 static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) {
     switch (GST_MESSAGE_TYPE(message)) {
         case GST_MESSAGE_EOS:
-            g_printerr("DEBUG: Received EOS, exiting...\n");
+            g_printerr("DEBUG: Received EOS on bus, exiting main loop\n");
             g_main_loop_quit(state.loop);
             break;
         case GST_MESSAGE_ERROR: {
             GError *err = NULL;
             gchar *debug = NULL;
             gst_message_parse_error(message, &err, &debug);
-            g_printerr("Error: %s (%s)\n", err->message, debug ? debug : "");
+            g_printerr("Error on bus: %s (%s)\n", err->message, debug ? debug : "");
             g_clear_error(&err);
             g_free(debug);
             g_main_loop_quit(state.loop);
@@ -554,7 +614,6 @@ static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) 
     return TRUE;
 }
 
-// ==================== MAIN ====================
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         g_printerr("Usage: %s <output_directory>\n", argv[0]);
@@ -566,6 +625,7 @@ int main(int argc, char *argv[]) {
     gst_init(&argc, &argv);
 
     state.webrtcbins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, free_peer_info);
+    state.pad_index = 1;
     for (int i = 0; i < 16; i++) state.grid_slots[i] = FALSE;
     state.loop = g_main_loop_new(NULL, FALSE);
 
@@ -654,19 +714,21 @@ int main(int argc, char *argv[]) {
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);
     g_io_channel_unref(stdin_chan);
 
-    g_printerr("DEBUG: GStreamer MCU C process started (low-latency mode)\n");
+    g_printerr("DEBUG: GStreamer MCU C process started\n");
+    fflush(stdout);
+
+    // Enters GLib loop (runs main thread)
     g_main_loop_run(state.loop);
 
     // Cleanup
     gst_element_set_state(state.pipeline, GST_STATE_NULL);
     gst_object_unref(state.pipeline);
-    if (state.compositor) gst_object_unref(state.compositor);
-    if (state.audiomixer) gst_object_unref(state.audiomixer);
-    if (state.video_tee) gst_object_unref(state.video_tee);
-    if (state.audio_tee) gst_object_unref(state.audio_tee);
+    gst_object_unref(state.compositor);
+    gst_object_unref(state.audiomixer);
+    gst_object_unref(state.video_tee);
+    gst_object_unref(state.audio_tee);
     g_hash_table_destroy(state.webrtcbins);
     g_main_loop_unref(state.loop);
 
     return 0;
 }
-

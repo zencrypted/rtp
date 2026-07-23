@@ -74,3 +74,45 @@ the call if DTLS/SRTP is missing. You can verify this in the SDP offer/answer:
 
    The `a=fingerprint` attribute proves that DTLS key exchange is requested for SRTP media transport.
 
+### 5. Limitations
+
+Here is the exact breakdown of what an attacker or server admin can and cannot see when intercepting TURN traffic:
+
+### What CAN be intercepted on a TURN server:
+
+Someone sniffing network traffic on a TURN server (or an admin running `tcpdump` / Wireshark on it) can see:
+
+1. **IP Addresses & Routing Metadata**:
+   - The public IP address of the WebRTC Client (browser).
+   - The IP address of the MCU Server (`gst.c`).
+   - The UDP/TCP ports used for communication.
+
+2. **Traffic Patterns & Bitrate (Metadata Analysis)**:
+   - Packet timing and volume (e.g., they can guess if video is 1080p or 360p based on bandwidth).
+   - Activity bursts (e.g., detecting when someone starts or stops talking based on audio packet frequency).
+
+3. **TURN Authentication Credentials**:
+   - TURN username (e.g., `rtpuser`) sent during the STUN/TURN allocation request.
+
+### What can NOT be decrypted by the TURN server:
+
+1. **Video and Audio Content**:
+   - The video and audio payloads inside TURN packets are encrypted using **SRTP**.
+   - The DTLS handshake that generates SRTP encryption keys happens directly between the Browser and `webrtcbin` (`gst.c`).
+   - The TURN server is a blind relay—it never receives the DTLS private key or SRTP session keys, so it cannot decrypt the ciphertext.
+
+2. **Application Data Channels**:
+   - WebRTC DataChannels (if used) are encrypted via DTLS-SCTP.
+
+### Summary Security Matrix
+
+| Component                        | Interceptable?         | Decryptable ?           |
+|----------------------------------|------------------------|-------------------------|
+| Client & Server IPs              | YES                    | N/A (Plaintext headers) |
+| Bandwidth & Packet Rates         | YES                    | N/A                     |
+| TURN Username                    | YES                    | N/A                     |
+| Video Stream (H.264/VP8/AV1)     | YES (as raw bytes)     | NO (SRTP Encrypted)     |
+| Audio Stream (Opus)              | YES (as raw bytes)     | NO (SRTP Encrypted)     |
+
+**Bottom Line:** An untrusted or compromised TURN server can leak your IP address and
+ connection metadata, but it cannot eavesdrop on your video calls or record your audio.

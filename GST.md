@@ -27,6 +27,33 @@ the Erlang control plane.
 
 ```mermaid
 flowchart TD
+    Peer[WebRTC Peer] <--> WB[webrtcbin]
+    subgraph Ingest ["Low-Latency Ingest"]
+        WB --> DB[decodebin]
+        DB --> VC[videoconvert]
+        VC --> JQ[jitter_queue leaky=2, 200-300ms]
+        JQ --> COMP[compositor Grid]
+    end
+    subgraph Mixer ["Central Mixer"]
+        COMP --> ENC[x264enc ultrafast zerolatency]
+        ENC --> TEE[tee]
+    end
+    subgraph Broadcast ["Broadcast"]
+        TEE --> VQ[per-peer queue leaky 1s] --> WB
+    end
+    subgraph Recording ["Recording"]
+        TEE --> MUX[mp4mux / hlssink2] --> OUT[Output File]
+    end
+    classDef critical fill:#FF6B6B,stroke:#FF0000,color:white
+    classDef queue fill:#4ECDC4,stroke:#45B7D1
+    classDef mixer fill:#45B7D1,stroke:#2C8C9E
+    class JQ critical
+    class VQ queue
+    class COMP,ENC mixer
+```
+
+```mermaid
+flowchart TD
     %% External Peers
     Peer[WebRTC Peer\nBrowser] <--> WB[webrtcbin]
 
@@ -34,15 +61,15 @@ flowchart TD
     subgraph Ingest ["Ingest Path (Per Peer)"]
         WB --> DB[decodebin]
         DB --> PAD[pad-added]
-        
+
         PAD --> VideoIngest[Video Ingest]
         PAD --> AudioIngest[Audio Ingest]
-        
+
         subgraph VideoIngest [Video Ingest]
             VC[videoconvert] --> JQ[jitter_queue<br>leaky=2, 250ms]
             JQ --> COMP_SINK[compositor.sink_N<br>Grid Position]
         end
-        
+
         subgraph AudioIngest [Audio Ingest]
             AC[audioconvert] --> AR[audioresample]
             AR --> AMIX_SINK[audiomixer.sink_N]
@@ -54,7 +81,6 @@ flowchart TD
         COMP[compositor<br>name=mix<br>ignore-inactive-pads=true] --> VCONV[videoconvert → I420]
         VCONV --> ENC[x264enc<br>ultrafast + zerolatency]
         ENC --> HTEE[h264_tee]
-        
         AMIX[audiomixer<br>name=amix<br>ignore-inactive-pads=true] --> ACONV[audioconvert + resample]
         ACONV --> RAW_A[raw audio tee]
     end
@@ -63,7 +89,6 @@ flowchart TD
     subgraph Broadcast ["Broadcast to All Peers"]
         HTEE --> VTEE[vtee]
         VTEE --> VQ[per-peer v_queue<br>leaky 1s] --> WB
-        
         RAW_A --> ATEE[atee]
         ATEE --> AQ[per-peer a_queue<br>leaky 1s] --> WB
     end

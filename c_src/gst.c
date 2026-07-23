@@ -327,8 +327,9 @@ static void setup_peer(const gchar *peer_id) {
     // - 120ms: Balanced default. Suitable for typical broadband and TURN relay.
     // - 200ms+: High latency. Recommended for 3G/Mobile networks with high packet jitter.
     // Note: This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
+
     g_object_set(webrtc,
-        "latency", 120,
+        "latency", 220,
         "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
         NULL);
 

@@ -33,10 +33,14 @@ flowchart TD
         DB --> VC[videoconvert]
         VC --> JQ[v_jitter queue max-buffers=3]
         JQ --> COMP[compositor Grid]
+        DB --> AC[audioconvert]
+        AC --> AJQ[a_jitter queue max-buffers=3]
+        AJQ --> AMIX[audiomixer]
     end
     subgraph Mixer ["Central Mixer"]
         COMP --> ENC[x264enc ultrafast zerolatency]
         ENC --> TEE[tee]
+        AMIX --> ATEE[audio tee]
     end
     subgraph Broadcast ["Broadcast"]
         TEE --> VQ[per-peer queue leaky 1s] --> WB
@@ -47,9 +51,9 @@ flowchart TD
     classDef critical fill:#FF6B6B,stroke:#FF0000,color:white
     classDef queue fill:#4ECDC4,stroke:#45B7D1
     classDef mixer fill:#45B7D1,stroke:#2C8C9E
-    class JQ critical
+    class JQ,AJQ critical
     class VQ queue
-    class COMP,ENC mixer
+    class COMP,ENC,AMIX mixer
 ```
 
 ```mermaid

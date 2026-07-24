@@ -258,12 +258,12 @@ Handles:
 
 | Call / Cast | Behaviour |
 |---|---|
-| `{join, Part}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
-| `{leave, Part}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
+| `{join, Part}` | Adds participant; publishes `{presence, join, Part}` |
+| `{leave, Part}` | Removes participant; publishes `{presence, leave, Part}` |
 | `{chat, Sender, Message}` | Writes to Mnesia via `rtp_store`; via `n2o:send/2` |
 | `{start_video, Peer, Cli}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
 | `{sdp_answer, Peer, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
-| `{ice_candidate, Peer, Cand}` | Delegates to `rtp_broker:ice_candidate/4` |
+| `{ice_candidate, P, Cand}` | Delegates to `rtp_broker:ice_candidate/4` |
 | `{peer_left, Peer}` | Delegates to `rtp_broker:peer_left/3` |
 | `terminate_room` | Calls `rtp_broker:terminate_room/2`; stops broker |
 | `get_started_at` | Queries broker for recording start timestamp |

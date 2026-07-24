@@ -241,35 +241,36 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
                      "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
 
-        GstElement *jitter = gst_element_factory_make("queue", NULL);
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
+        GstElement *jitter = gst_element_factory_make("queue", NULL);
 
+        // Memory Optimization: Use a small, non-leaky thread boundary queue
+        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
         g_object_set(jitter,
-            "max-size-buffers", 0,
+            "max-size-buffers", 3,
             "max-size-bytes", 0,
-            "max-size-time", (guint64)300000000,
-            "leaky", 2,
+            "max-size-time", (guint64)0,
             NULL);
 
-        peer->v_jitter = jitter;
         peer->v_convert = converter;
+        peer->v_jitter = jitter;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), jitter, converter, NULL);
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, jitter, NULL);
 
-        GstPad *j_sink = gst_element_get_static_pad(jitter, "sink");
-        GstPad *j_src  = gst_element_get_static_pad(jitter, "src");
         GstPad *c_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *c_src  = gst_element_get_static_pad(converter, "src");
+        GstPad *j_sink = gst_element_get_static_pad(jitter, "sink");
+        GstPad *j_src  = gst_element_get_static_pad(jitter, "src");
 
-        gst_pad_link(pad, j_sink);
-        gst_pad_link(j_src, c_sink);
-        gst_pad_link(c_src, comp_pad);
+        gst_pad_link(pad, c_sink);
+        gst_pad_link(c_src, j_sink);
+        gst_pad_link(j_src, comp_pad);
 
-        gst_element_sync_state_with_parent(jitter);
         gst_element_sync_state_with_parent(converter);
+        gst_element_sync_state_with_parent(jitter);
 
-        gst_object_unref(j_sink); gst_object_unref(j_src);
         gst_object_unref(c_sink); gst_object_unref(c_src);
+        gst_object_unref(j_sink); gst_object_unref(j_src);
 
     } else if (g_str_has_prefix(name, "audio")) {
         gst_caps_unref(caps);
@@ -278,42 +279,42 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
         peer->amix_pad = amix_pad;
 
-        GstElement *jitter = gst_element_factory_make("queue", NULL);
         GstElement *converter = gst_element_factory_make("audioconvert", NULL);
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
+        GstElement *jitter = gst_element_factory_make("queue", NULL);
 
+        // Small, non-leaky queue to decouple audio decoding thread from audiomixer
         g_object_set(jitter,
-            "max-size-buffers", 0,
+            "max-size-buffers", 3,
             "max-size-bytes", 0,
-            "max-size-time", (guint64)300000000,
-            "leaky", 2,
+            "max-size-time", (guint64)0,
             NULL);
 
-        peer->a_jitter = jitter;
         peer->a_convert = converter;
         peer->a_resample = resampler;
+        peer->a_jitter = jitter;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), jitter, converter, resampler, NULL);
+        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, jitter, NULL);
 
-        GstPad *j_sink    = gst_element_get_static_pad(jitter, "sink");
-        GstPad *j_src     = gst_element_get_static_pad(jitter, "src");
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
         GstPad *res_sink  = gst_element_get_static_pad(resampler, "sink");
         GstPad *res_src   = gst_element_get_static_pad(resampler, "src");
+        GstPad *j_sink    = gst_element_get_static_pad(jitter, "sink");
+        GstPad *j_src     = gst_element_get_static_pad(jitter, "src");
 
-        gst_pad_link(pad, j_sink);
-        gst_pad_link(j_src, conv_sink);
+        gst_pad_link(pad, conv_sink);
         gst_pad_link(conv_src, res_sink);
-        gst_pad_link(res_src, amix_pad);
+        gst_pad_link(res_src, j_sink);
+        gst_pad_link(j_src, amix_pad);
 
-        gst_element_sync_state_with_parent(jitter);
         gst_element_sync_state_with_parent(converter);
         gst_element_sync_state_with_parent(resampler);
+        gst_element_sync_state_with_parent(jitter);
 
-        gst_object_unref(j_sink);    gst_object_unref(j_src);
         gst_object_unref(conv_sink); gst_object_unref(conv_src);
         gst_object_unref(res_sink);  gst_object_unref(res_src);
+        gst_object_unref(j_sink);    gst_object_unref(j_src);
     } else {
         gst_caps_unref(caps);
     }
@@ -705,9 +706,9 @@ int main(int argc, char *argv[]) {
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "mp4mux name=mux fragment-duration=1000 streamable=true ! filesink location=%s/recording.mp4 "
             "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! mux.video_0 "
             "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
@@ -719,9 +720,9 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! tee name=raw_vtee "
-            "raw_vtee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "raw_vtee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "raw_vtee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h265parse ! hlssink2.video "
             "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
@@ -734,9 +735,9 @@ int main(int argc, char *argv[]) {
             "audiotestsrc is-live=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=60 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! hlssink2.video "
             "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",

@@ -16,18 +16,10 @@ start(_StartType, _StartArgs) ->
     application:set_env(n2o, pickler, n2o_secret),
     application:set_env(n2o, event, pickle),
 
-    % 1. Initialize KVS schema bindings
     kvs:join(),
-
-    % 2. Initialize Syn registry rooms scope
     ok = syn:add_node_to_scopes([rooms, n2o_mq]),
-
-    % 3. WebSocket listener on Port 8001 (N2O WS + signaling)
     {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.Rtp.WS'}, {port, 8001}]),
-
-    % 4. Static file server on Port 8081
     {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.Rtp.Static'}, {port, 8081}]),
-
     rtp_sup:start_link().
 
 stop(_State) ->

@@ -277,6 +277,29 @@ handle_info({poll_manifest, RoomId, StartedAt, Attempts}, State) ->
             end
     end;
 
+handle_info({check_empty, RoomId}, State) ->
+    case maps:get(RoomId, State#state.room_peers, []) of
+        [] ->
+            case maps:find(RoomId, State#state.ports) of
+                {ok, Port} ->
+                    error_logger:info_msg("Room ~s empty for 15s. Closing GStreamer.~n", [RoomId]),
+                    catch port_close(Port),
+                    NewPorts = maps:remove(RoomId, State#state.ports),
+                    NewRoomPeers = maps:remove(RoomId, State#state.room_peers),
+                    NewStartedAt = maps:remove(RoomId, State#state.room_started_at),
+                    {noreply, State#state{
+                        ports = NewPorts,
+                        room_peers = NewRoomPeers,
+                        room_started_at = NewStartedAt
+                    }};
+                error ->
+                    {noreply, State}
+            end;
+        _ ->
+            %% Someone joined back!
+            {noreply, State}
+    end;
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -331,12 +354,10 @@ handle_peer_departure(RoomId, PeerId, State) ->
 
             case NewPeers of
                 [] ->
-                    error_logger:info_msg("Last peer left room ~s. Closing GStreamer port.~n", [RoomId]),
-                    catch port_close(Port),
-                    NewPorts = maps:remove(RoomId, State#state.ports),
-                    NewRoomPeers = maps:remove(RoomId, State#state.room_peers),
+                    error_logger:info_msg("Last peer left room ~s. Will close MCU in 15s if empty.~n", [RoomId]),
+                    erlang:send_after(1000, self(), {check_empty, RoomId}),
+                    NewRoomPeers = maps:put(RoomId, [], State#state.room_peers),
                     State#state{
-                        ports = NewPorts,
                         room_peers = NewRoomPeers,
                         peer_rooms = NewPeerRooms
                     };

@@ -773,9 +773,11 @@ int main(int argc, char *argv[]) {
     } else {
         g_printerr("Using HLS segment generation format (H.264).\n");
         pipeline_str = g_strdup_printf(
-            "videotestsrc pattern=black is-live=true do-timestamp=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
-            "audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
-            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! "
+            "videotestsrc pattern=black is-live=true do-timestamp=true ! timeoverlay valignment=bottom halignment=left font-desc=\"Sans, 48\" ! "
+            "video/x-raw,width=1920,height=1080,framerate=30/1 ! "
+            "mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
+            "compositor name=mix ignore-inactive-pads=true ! videoconvert ! "
+            "video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! "
             "queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! "
             "x264enc bitrate=4000 speed-preset=ultrafast key-int-max=60 tune=zerolatency !"
             "video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "

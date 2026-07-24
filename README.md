@@ -1,14 +1,14 @@
 # WebRTC Group Video Conference HPA Server
 
-[![Actions Status](https://github.com/zencrypted/rtp/workflows/mix/badge.svg)](https://github.com/zencrypted/rtp/actions)
-[![Hex pm](https://img.shields.io/hexpm/v/rtp.svg?style=flat)](https://hex.pm/packages/rtp)
+[![CI](https://github.com/zencrypted/rtp/workflows/mix/badge.svg)](https://github.com/zencrypted/rtp/actions)
+[![PM](https://img.shields.io/hexpm/v/rtp.svg?style=flat)](https://hex.pm/packages/rtp)
 
 This repository contains the unified, lightweight RTP monorepo designed for high-performance
 WebRTC video conferencing. It consolidates N2O WebSocket signaling pages, session authentication,
 room process supervisors, Mnesia persistence, and in-process GStreamer compositor port drivers
 into a single cohesive Erlang/OTP application.
 
-## 1. Directory Blueprint
+## 1. Source Tree Directory Blueprint
 
 ```
 ├── c_src/
@@ -20,6 +20,9 @@ into a single cohesive Erlang/OTP application.
 │   ├── sys.config               # Mnesia dir, N2O parameters, port bindings
 │   └── vm.args                  # Cluster node cookie and naming arguments
 ├── priv/
+│   ├── cert.sh                  # X.509 Cert Generator script
+│   ├── cert.pem                 # X.509 Certificate PEM
+│   ├── key.pem                  # X.509 Private Key PEM
 │   ├── gst                      # Compiled native C99 binary spawned by Erlang port
 │   └── static/
 │       ├── app/
@@ -164,9 +167,10 @@ predictable latency, and granular crash recovery:
 6. Starts `rtp_sup`.
 
 The startup banner reports hardware capacity heuristics:
-- `MaxRooms = logical_cores × 10`
-- `RoomCapacity = 50` participants per room
-- `MaxParticipants = MaxRooms × RoomCapacity`
+
+* `MaxRooms = logical_cores × 10`
+* `RoomCapacity = 50` participants per room
+* `MaxParticipants = MaxRooms × RoomCapacity`
 
 ### 3.2 Supervisor — `rtp_sup.erl`
 
@@ -178,19 +182,20 @@ transiently on-demand by `rtp_coordinator:ensure_started/1`.
 
 ```erlang
 -record(rtp_token, {
-    token  :: binary(),            % Unique opaque session token
-    user   :: binary(),            % Username
-    room   :: binary(),            % Room name
+    token  :: binary(),             % Unique opaque session token
+    user   :: binary(),             % Username
+    room   :: binary(),             % Room name
     device :: binary() | undefined, % WebRTC peer_id (populated on WebSocket connect)
-    expiry :: integer()            % Gregorian seconds expiry (issue time + 180 s)
+    expiry :: integer()             % Gregorian seconds expiry (issue time + 180 s)
 }).
 ```
 
 Token lifecycle:
-- **`issue(User, Room)`** — generates a cryptographic token via `n2o_secret:sid/1`,
+
+* `issue(User, Room)` — generates a cryptographic token via `n2o_secret:sid/1`,
   stores the record in the `rtp_tokens` ETS table with a 3-minute TTL.
-- **`validate(Token)`** — looks up the ETS table, rejects expired entries and removes them.
-- **`update_device(Token, PeerId)`** — associates the ephemeral WebRTC `peer_id` with
+* `validate(Token)` — looks up the ETS table, rejects expired entries and removes them.
+* `update_device(Token, PeerId)` — associates the ephemeral WebRTC `peer_id` with
   the session on first WebSocket connection.
 
 ### 3.4 WebSocket Signaling — `rtp_signaling.erl`
@@ -207,11 +212,11 @@ Implements the `Elixir.WebSock` behaviour. State record:
 }).
 ```
 
-**`init/1`**: Generates a unique `peer_id`, ensures the `rtp_coordinator` is started,
+`init/1`: Generates a unique `peer_id`, ensures the `rtp_coordinator` is started,
 updates the session token device field, registers the process in the `rooms` Syn scope
 (`syn:register(rooms, PeerId, self())`), and sends `send_init_msg` to itself.
 
-**`handle_in/2`**: Decodes JSON text frames and dispatches:
+`handle_in/2`: Decodes JSON text frames and dispatches:
 
 | Client Message | Handler Action |
 |---|---|
@@ -222,7 +227,7 @@ updates the session token device field, registers the process in the `rooms` Syn
 | `{"sdp":{"type":"answer","sdp":...}}` | Forwards SDP answer to `rtp_coordinator` |
 | `{"candidate":...}` | Forwards ICE candidate to `rtp_coordinator` |
 
-**`handle_info/2`**: Routes Erlang messages to WebSocket pushes:
+`handle_info/2`: Routes Erlang messages to WebSocket pushes:
 
 | Erlang Message | WebSocket Push |
 |---|---|
@@ -233,7 +238,7 @@ updates the session token device field, registers the process in the `rooms` Syn
 | `{peer_joined, PeerId}` | `{"type":"peer_joined","peer_id":"..."}` |
 | `{peer_left, PeerId}` | `{"type":"peer_left","peer_id":"..."}` |
 
-**`terminate/2`**: Calls `rtp_coordinator:peer_left/2` and unregisters from Syn.
+`terminate/2`: Calls `rtp_coordinator:peer_left/2` and unregisters from Syn.
 
 ### 3.5 Room Coordinator — `rtp_coordinator.erl`
 
@@ -256,7 +261,7 @@ Handles:
 | `{join, Participant}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
 | `{leave, ParticipantId}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
 | `{chat, Sender, Message}` | Writes to Mnesia via `rtp_store`; publishes via `n2o:send/2` |
-| `{originate_video, PeerId, ClientPid}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
+| `{start_video, PeerId, ClientPid}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
 | `{sdp_answer, PeerId, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
 | `{ice_candidate, PeerId, Candidate}` | Delegates to `rtp_broker:ice_candidate/4` |
 | `{peer_left, PeerId}` | Delegates to `rtp_broker:peer_left/3` |

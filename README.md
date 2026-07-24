@@ -235,8 +235,8 @@ updates the session token device field, registers the process in the `rooms` Syn
 | `{send_room_info, At}` | `{"type":"room_info","started_at":...,"hls_format":...}` |
 | `{sdp_offer, Sdp}` | `{"sdp":{"type":"offer","sdp":"..."}}` |
 | `{ice_candidate, Cand}` | `{"candidate":{...}}` |
-| `{peer_joined, PeerId}` | `{"type":"peer_joined","peer_id":"..."}` |
-| `{peer_left, PeerId}` | `{"type":"peer_left","peer_id":"..."}` |
+| `{peer_joined, Peer}` | `{"type":"peer_joined","peer_id":"..."}` |
+| `{peer_left, Peer}` | `{"type":"peer_left","peer_id":"..."}` |
 
 `terminate/2`: Calls `rtp_coordinator:peer_left/2` and unregisters from Syn.
 
@@ -258,13 +258,13 @@ Handles:
 
 | Call / Cast | Behaviour |
 |---|---|
-| `{join, Participant}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
-| `{leave, ParticipantId}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
+| `{join, Part}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
+| `{leave, Part}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
 | `{chat, Sender, Message}` | Writes to Mnesia via `rtp_store`; via `n2o:send/2` |
 | `{start_video, Peer, Client}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
-| `{sdp_answer, PeerId, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
-| `{ice_candidate, PeerId, Cand}` | Delegates to `rtp_broker:ice_candidate/4` |
-| `{peer_left, PeerId}` | Delegates to `rtp_broker:peer_left/3` |
+| `{sdp_answer, Peer, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
+| `{ice_candidate, Peer, Cand}` | Delegates to `rtp_broker:ice_candidate/4` |
+| `{peer_left, Peer}` | Delegates to `rtp_broker:peer_left/3` |
 | `terminate_room` | Calls `rtp_broker:terminate_room/2`; stops broker |
 | `get_started_at` | Queries broker for recording start timestamp |
 | `get_peers` | Queries broker for active peer list |

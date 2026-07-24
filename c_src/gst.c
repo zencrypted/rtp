@@ -16,6 +16,11 @@
 //Part 1: Structs & Helpers
 
 typedef struct {
+    gchar *candidate;
+    guint mline_idx;
+} PendingIceCandidate;
+
+typedef struct {
     gchar *peer_id;
     GstElement *webrtc;
     GstElement *v_queue;        // outgoing to peer
@@ -30,6 +35,9 @@ typedef struct {
     GstElement *a_jitter;
     GstElement *a_resample;
     gint grid_idx;
+    gboolean remote_desc_set;
+    gboolean bundled;
+    GArray *pending_ice_candidates;
 } PeerInfo;
 
 static void free_peer_info(gpointer data) {
@@ -102,6 +110,24 @@ static void cleanup_peer(const gchar *peer_id);
 static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data);
 static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candidate, gpointer user_data);
 static void handle_signaling_message(const gchar *json_str);
+
+static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx, const gchar *candidate_str, gboolean bundled) {
+    if (!webrtc || !candidate_str) return;
+    g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, candidate_str);
+    if (bundled)
+        g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), candidate_str);
+    if (is_wsl()) {
+        gchar *dup = replace_wsl_ip(candidate_str);
+        if (dup && g_strcmp0(dup, candidate_str) != 0) {
+            g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, dup);
+            if (bundled)
+                g_signal_emit_by_name(webrtc, "add-ice-candidate", (mline_idx == 0 ? 1 : 0), dup);
+        }
+        if (dup) g_free(dup);
+    }
+}
+
+/* Remote description is set synchronously upon set-remote-description signal emit */
 
 // Part 2: Signaling & Core Callbacks
 
@@ -348,19 +374,19 @@ static void setup_peer(const gchar *peer_id) {
     g_object_set(webrtc,
         "latency", global_config.latency,
         "bundle-policy", global_config.bundle_policy,
+        "stun-server", "stun://127.0.0.1:3478",
+        "turn-server", "turn://rtpuser:rtppassword@127.0.0.1:3478",
         NULL);
 
-    if (global_config.pem_certificate && global_config.pem_key) {
-        g_object_set(webrtc,
-            "pem-certificate", global_config.pem_certificate,
-            "pem-key", global_config.pem_key,
-            NULL);
-    }
+    /* pem-certificate/pem-key removed (not supported in GStreamer 1.20.x on Ubuntu 22.04) */
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
     peer->webrtc = webrtc;
     peer->grid_idx = -1;
+    peer->remote_desc_set = FALSE;
+    peer->bundled = FALSE;
+    peer->pending_ice_candidates = g_array_new(FALSE, FALSE, sizeof(PendingIceCandidate));
 
     // Grid slot
     for (int i = 0; i < 16; i++) {
@@ -562,16 +588,41 @@ static void handle_signaling_message(const gchar *json_str) {
         PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
         GstElement *webrtc = peer ? peer->webrtc : NULL;
         if (webrtc) {
+            g_printerr("DEBUG: Received SDP answer for peer: %s\n", peer_id);
             GstSDPMessage *sdp = NULL;
             gst_sdp_message_new(&sdp);
             gst_sdp_message_parse_buffer((const guint8 *)sdp_text, strlen(sdp_text), sdp);
-            GstWebRTCSessionDescription *answer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdp);
+            gboolean is_bundled = FALSE;
+            guint nmedia = gst_sdp_message_medias_len(sdp);
+            if (nmedia >= 2) {
+                const GstSDPMedia *m0 = gst_sdp_message_get_media(sdp, 0);
+                const GstSDPMedia *m1 = gst_sdp_message_get_media(sdp, 1);
+                const gchar *uf0 = gst_sdp_media_get_attribute_val(m0, "ice-ufrag");
+                const gchar *uf1 = gst_sdp_media_get_attribute_val(m1, "ice-ufrag");
+                if (uf0 && uf1 && g_strcmp0(uf0, uf1) == 0 && gst_sdp_media_get_port(m1) != 0)
+                    is_bundled = TRUE;
+            }
+            if (peer) peer->bundled = is_bundled;
 
+            GstWebRTCSessionDescription *answer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdp);
             GstPromise *promise = gst_promise_new();
             g_signal_emit_by_name(webrtc, "set-remote-description", answer, promise);
             gst_promise_interrupt(promise);
             gst_promise_unref(promise);
             gst_webrtc_session_description_free(answer);
+
+            if (peer) {
+                peer->remote_desc_set = TRUE;
+                g_printerr("DEBUG: Remote description set for peer: %s (flushing queued candidates)\n", peer_id);
+                if (peer->pending_ice_candidates) {
+                    for (guint i = 0; i < peer->pending_ice_candidates->len; i++) {
+                        PendingIceCandidate *cand = &g_array_index(peer->pending_ice_candidates, PendingIceCandidate, i);
+                        add_remote_ice_candidate_impl(peer->webrtc, cand->mline_idx, cand->candidate, peer->bundled);
+                        g_free(cand->candidate);
+                    }
+                    g_array_set_size(peer->pending_ice_candidates, 0);
+                }
+            }
         }
     } else if (g_strcmp0(type, "ice_candidate") == 0) {
         const gchar *peer_id = json_object_get_string_member(root, "peer_id");
@@ -581,14 +632,12 @@ static void handle_signaling_message(const gchar *json_str) {
 
         PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
         GstElement *webrtc = peer ? peer->webrtc : NULL;
-        if (webrtc) {
-            g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, candidate_str);
-            if (is_wsl()) {
-                gchar *alt_cand = replace_wsl_ip(candidate_str);
-                if (alt_cand && g_strcmp0(alt_cand, candidate_str) != 0) {
-                    g_signal_emit_by_name(webrtc, "add-ice-candidate", mline_idx, alt_cand);
-                }
-                if (alt_cand) g_free(alt_cand);
+        if (peer && peer->webrtc) {
+            if (peer->remote_desc_set) {
+                add_remote_ice_candidate_impl(peer->webrtc, (guint)mline_idx, candidate_str, peer->bundled);
+            } else {
+                PendingIceCandidate pending = { g_strdup(candidate_str), (guint)mline_idx };
+                g_array_append_val(peer->pending_ice_candidates, pending);
             }
         }
     } else if (g_strcmp0(type, "peer_left") == 0) {

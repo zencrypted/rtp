@@ -261,7 +261,7 @@ Handles:
 | `{join, Participant}` | Adds participant; publishes `{presence, join, Participant}` via Syn |
 | `{leave, ParticipantId}` | Removes participant; publishes `{presence, leave, ParticipantId}` |
 | `{chat, Sender, Message}` | Writes to Mnesia via `rtp_store`; publishes via `n2o:send/2` |
-| `{start_video, PeerId, ClientPid}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
+| `{start_video, Peer, Client}` | Lazily starts `rtp_broker`; calls `peer_joined/4` |
 | `{sdp_answer, PeerId, Sdp}` | Delegates to `rtp_broker:sdp_answer/4` |
 | `{ice_candidate, PeerId, Candidate}` | Delegates to `rtp_broker:ice_candidate/4` |
 | `{peer_left, PeerId}` | Delegates to `rtp_broker:peer_left/3` |

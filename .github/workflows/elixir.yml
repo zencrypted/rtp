@@ -27,3 +27,5 @@ jobs:
         mix deps.get
     - name: Compilation
       run: mix compile
+    - name: Test
+      run: mix test

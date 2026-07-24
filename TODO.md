@@ -1,16 +1,13 @@
 # Implementation Plan: Scaling MCU to 32 Max Peers & Grid Rendering Strategies
 
-This plan outlines the architecture and options for expanding the `gst.c` MCU compositor from 16 to 32 maximum participants while maintaining real-time performance and memory efficiency.
-
----
+This plan outlines the architecture and options for expanding the `gst.c` MCU
+compositor from 16 to 32 maximum participants while maintaining real-time performance and memory efficiency.
 
 ## Technical Challenges at 32 Participants
 
 1. **Decoding & Compositing Overhead**: Concurrent software decoding of 32 incoming video streams at 1080p/720p requires significant CPU resources.
 2. **Spatial Geometry Math**: The current index placement in `gst.c` hardcodes a 2x2 quadrant (`idx % 2`, `idx / 2` at 960x540), causing indices 4–15 to render off-screen.
 3. **Data Structure Limits**: `grid_slots[16]` must be scaled to `grid_slots[32]`.
-
----
 
 ## Proposed Grid Rendering Strategies (User Selection Required)
 

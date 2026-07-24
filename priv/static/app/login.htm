@@ -54,8 +54,8 @@
     <script>
         // Pre-fill last-used nickname and room
         window.addEventListener('DOMContentLoaded', () => {
-            const u = localStorage.getItem('rtp_user');
-            const r = localStorage.getItem('rtp_room');
+            const u = sessionStorage.getItem('rtp_user');
+            const r = sessionStorage.getItem('rtp_room');
             if (u) document.getElementById('user').value = u;
             if (r) document.getElementById('pass').value = r;
         });

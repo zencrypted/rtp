@@ -241,36 +241,35 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
                      "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
 
-        GstElement *converter = gst_element_factory_make("videoconvert", NULL);
         GstElement *jitter = gst_element_factory_make("queue", NULL);
+        GstElement *converter = gst_element_factory_make("videoconvert", NULL);
 
-        // Memory Optimization: Use a small, non-leaky thread boundary queue
-        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
         g_object_set(jitter,
-            "max-size-buffers", 3,
+            "max-size-buffers", 5,
             "max-size-bytes", 0,
             "max-size-time", (guint64)0,
+            "leaky", 2,
             NULL);
 
-        peer->v_convert = converter;
         peer->v_jitter = jitter;
+        peer->v_convert = converter;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, jitter, NULL);
+        gst_bin_add_many(GST_BIN(state.pipeline), jitter, converter, NULL);
 
-        GstPad *c_sink = gst_element_get_static_pad(converter, "sink");
-        GstPad *c_src  = gst_element_get_static_pad(converter, "src");
         GstPad *j_sink = gst_element_get_static_pad(jitter, "sink");
         GstPad *j_src  = gst_element_get_static_pad(jitter, "src");
+        GstPad *c_sink = gst_element_get_static_pad(converter, "sink");
+        GstPad *c_src  = gst_element_get_static_pad(converter, "src");
 
-        gst_pad_link(pad, c_sink);
-        gst_pad_link(c_src, j_sink);
-        gst_pad_link(j_src, comp_pad);
+        gst_pad_link(pad, j_sink);
+        gst_pad_link(j_src, c_sink);
+        gst_pad_link(c_src, comp_pad);
 
-        gst_element_sync_state_with_parent(converter);
         gst_element_sync_state_with_parent(jitter);
+        gst_element_sync_state_with_parent(converter);
 
-        gst_object_unref(c_sink); gst_object_unref(c_src);
         gst_object_unref(j_sink); gst_object_unref(j_src);
+        gst_object_unref(c_sink); gst_object_unref(c_src);
 
     } else if (g_str_has_prefix(name, "audio")) {
         gst_caps_unref(caps);
@@ -279,42 +278,42 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstPad *amix_pad = gst_element_request_pad_simple(state.audiomixer, "sink_%u");
         peer->amix_pad = amix_pad;
 
+        GstElement *jitter = gst_element_factory_make("queue", NULL);
         GstElement *converter = gst_element_factory_make("audioconvert", NULL);
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
-        GstElement *jitter = gst_element_factory_make("queue", NULL);
 
-        // Small, non-leaky queue to decouple audio decoding thread from audiomixer
         g_object_set(jitter,
-            "max-size-buffers", 3,
+            "max-size-buffers", 5,
             "max-size-bytes", 0,
             "max-size-time", (guint64)0,
+            "leaky", 2,
             NULL);
 
+        peer->a_jitter = jitter;
         peer->a_convert = converter;
         peer->a_resample = resampler;
-        peer->a_jitter = jitter;
 
-        gst_bin_add_many(GST_BIN(state.pipeline), converter, resampler, jitter, NULL);
+        gst_bin_add_many(GST_BIN(state.pipeline), jitter, converter, resampler, NULL);
 
+        GstPad *j_sink    = gst_element_get_static_pad(jitter, "sink");
+        GstPad *j_src     = gst_element_get_static_pad(jitter, "src");
         GstPad *conv_sink = gst_element_get_static_pad(converter, "sink");
         GstPad *conv_src  = gst_element_get_static_pad(converter, "src");
         GstPad *res_sink  = gst_element_get_static_pad(resampler, "sink");
         GstPad *res_src   = gst_element_get_static_pad(resampler, "src");
-        GstPad *j_sink    = gst_element_get_static_pad(jitter, "sink");
-        GstPad *j_src     = gst_element_get_static_pad(jitter, "src");
 
-        gst_pad_link(pad, conv_sink);
+        gst_pad_link(pad, j_sink);
+        gst_pad_link(j_src, conv_sink);
         gst_pad_link(conv_src, res_sink);
-        gst_pad_link(res_src, j_sink);
-        gst_pad_link(j_src, amix_pad);
+        gst_pad_link(res_src, amix_pad);
 
+        gst_element_sync_state_with_parent(jitter);
         gst_element_sync_state_with_parent(converter);
         gst_element_sync_state_with_parent(resampler);
-        gst_element_sync_state_with_parent(jitter);
 
+        gst_object_unref(j_sink);    gst_object_unref(j_src);
         gst_object_unref(conv_sink); gst_object_unref(conv_src);
         gst_object_unref(res_sink);  gst_object_unref(res_src);
-        gst_object_unref(j_sink);    gst_object_unref(j_src);
     } else {
         gst_caps_unref(caps);
     }

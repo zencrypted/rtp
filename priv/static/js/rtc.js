@@ -1,24 +1,18 @@
 
-        // Room/user survive F5: URL params take priority, localStorage as fallback.
+        // Tab-isolated session state: URL params take priority, sessionStorage as fallback.
         const urlParams = new URLSearchParams(window.location.search);
-        const roomName = urlParams.get('room')
-                      || localStorage.getItem('rtp_room')
-                      || 'lobby';
-        const userName = urlParams.get('user')
-                      || localStorage.getItem('rtp_user')
-                      || 'guest';
-        const sessionToken = urlParams.get('token')
-                      || localStorage.getItem('rtp_token')
-                      || '';
+        const roomName     = urlParams.get('room')  || sessionStorage.getItem('rtp_room')  || 'lobby';
+        const userName     = urlParams.get('user')  || sessionStorage.getItem('rtp_user')  || 'guest';
+        const sessionToken = urlParams.get('token') || sessionStorage.getItem('rtp_token') || '';
 
-        // Persist so F5 without URL params still knows who/where we are
-        localStorage.setItem('rtp_room', roomName);
-        localStorage.setItem('rtp_user', userName);
+        // Persist within this browser tab only
+        sessionStorage.setItem('rtp_room', roomName);
+        sessionStorage.setItem('rtp_user', userName);
         if (sessionToken) {
-            localStorage.setItem('rtp_token', sessionToken);
+            sessionStorage.setItem('rtp_token', sessionToken);
         }
 
-        // Keep URL in sync (makes sharing/bookmarking work)
+        // Keep URL in sync in address bar
         if (!urlParams.get('room') || !urlParams.get('user') || (sessionToken && !urlParams.get('token'))) {
             const next = new URL(window.location.href);
             next.searchParams.set('room', roomName);
@@ -62,8 +56,8 @@
         let localStream = null;
         let peerId      = null;
         let pingInterval= null;
-        // Persisted join state: true if user was joined before F5, false if they explicitly disconnected
-        let autoJoin    = localStorage.getItem('rtp_joined') === 'true';
+        // Persisted join state: true if URL params specify room/user or user was joined before F5
+        let autoJoin    = Boolean(urlParams.get('room') && urlParams.get('user')) || sessionStorage.getItem('rtp_joined') === 'true';
 
         function connectSignaling() {
             // Connect to signaling websocket using fallback auth query params
@@ -127,7 +121,7 @@
 
         btnJoin.addEventListener('click', () => {
             autoJoin = true;
-            localStorage.setItem('rtp_joined', 'true');
+            sessionStorage.setItem('rtp_joined', 'true');
             if (!signalingWs) {
                 connectSignaling();
             } else {
@@ -140,7 +134,7 @@
             if (pc) return;
             try {
                 autoJoin = true;
-                localStorage.setItem('rtp_joined', 'true');  // remember: user is joined
+                sessionStorage.setItem('rtp_joined', 'true');  // remember: user is joined
                 btnJoin.disabled = true;
                 btnJoin.textContent = '⌛';
 
@@ -278,7 +272,7 @@
 
         function leaveConference() {
             autoJoin = false;
-            localStorage.removeItem('rtp_joined');  // F5 after Disconnect → stays disconnected
+            sessionStorage.removeItem('rtp_joined');  // F5 after Disconnect → stays disconnected
             if (signalingWs) {
                 signalingWs.onclose = null;  // prevent double-reset
                 signalingWs.close();

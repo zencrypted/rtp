@@ -120,6 +120,10 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 │   ├── static.ex             Plug.Static asset server — port 8081
 │   └── ws.ex                 WebSocket server — port 8001 → rtp_signaling
 └── src/
+    ├── rtp.app.src           Erlang/OTP Manifest
+    ├── rtp_routes.erl        N2O URL router
+    ├── rtp_room.erl          N2O Nitro page: room chat history, member list
+    ├── rtp_login.erl         N2O Nitro page: session token issuance and redirect
     ├── rtp_broker.erl        gen_server: GStreamer port lifecycle and Port IPC bridge
     ├── rtp_store.erl         gen_server: Mnesia schema init, per-room chat tables
     ├── rtp_signaling.erl     WebSock handler: SDP/ICE signaling, peer registration

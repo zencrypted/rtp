@@ -7,6 +7,9 @@ jobs:
     - uses: actions/checkout@v4
     - uses: grafana/setup-k6-action@v1
     - uses: grafana/run-k6-action@v1
+      with:
+        path: |
+          ./test/k6_sim.js
     - name: Install system dependencies
       run: |
         sudo apt-get update

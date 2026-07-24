@@ -24,7 +24,7 @@ defmodule RtpTest do
     # Wait dynamically for ports to flush and close files (up to 15 seconds)
     for i <- 1..4 do
       filename = "priv/static/rooms/room_#{i}/index.m3u8"
-      
+
       wait_for_file = fn loop, retries ->
         if File.exists?(filename) do
           stat = File.stat!(filename)
@@ -48,7 +48,7 @@ defmodule RtpTest do
           end
         end
       end
-      
+
       wait_for_file.(wait_for_file, 30) # 30 * 500ms = 15 seconds
     end
   end

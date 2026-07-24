@@ -5,7 +5,7 @@
 
 %% API
 -export([start_link/1, join/2, leave/2, get_state/1,
-         ensure_started/1, post_chat/3, originate_video/3, sdp_answer/3, ice_candidate/3,
+         ensure_started/1, post_chat/3, start_video/3, sdp_answer/3, ice_candidate/3,
          peer_left/2, terminate_room/1, active_participants/1]).
 
 %% gen_server callbacks
@@ -58,8 +58,8 @@ leave(RoomPid, ParticipantId) ->
 post_chat(RoomPid, Sender, Message) ->
     gen_server:call(RoomPid, {chat, Sender, Message}).
 
-originate_video(RoomPid, PeerId, ClientPid) ->
-    gen_server:call(RoomPid, {originate_video, PeerId, ClientPid}).
+start_video(RoomPid, PeerId, ClientPid) ->
+    gen_server:call(RoomPid, {start_video, PeerId, ClientPid}).
 
 sdp_answer(RoomPid, PeerId, Sdp) ->
     gen_server:call(RoomPid, {sdp_answer, PeerId, Sdp}).
@@ -107,7 +107,7 @@ handle_call({chat, Sender, Message}, _From, State) ->
     n2o:send({topic, State#state.room_id}, #client{data = Msg}),
     {reply, ok, State};
 
-handle_call({originate_video, PeerId, ClientPid}, _From, State) ->
+handle_call({start_video, PeerId, ClientPid}, _From, State) ->
     {NewState, BrokerPid} = case State#state.media_broker of
         undefined ->
             {ok, Pid} = rtp_broker:start_link(),

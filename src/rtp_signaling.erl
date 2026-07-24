@@ -40,7 +40,7 @@ handle_in({Msg, Opts} = Frame, State) ->
             PeerId = State#state.peer_id,
             case Type of
                 <<"ready">> ->
-                    case rtp_coordinator:originate_video(State#state.room_pid, PeerId, self()) of
+                    case rtp_coordinator:start_video(State#state.room_pid, PeerId, self()) of
                         {ok, StartedAt} ->
                             self() ! {send_room_info, StartedAt};
                         {pending, _StartedAt} ->

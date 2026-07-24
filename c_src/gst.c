@@ -72,7 +72,7 @@ static WebRTCConfig global_config = {
     .pem_certificate = NULL,
     .pem_key = NULL,
     .bundle_policy = GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-    .latency = 80
+    .latency = 40
 };
 
 // WSL2 Helpers
@@ -259,7 +259,7 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         g_object_set(jitter,
             "max-size-buffers", 3,
             "max-size-bytes", 0,
-            "max-size-time", (guint64)80000000,
+            "max-size-time", (guint64)150000000,
             NULL);
 
         peer->v_convert = converter;
@@ -309,7 +309,7 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         g_object_set(jitter,
             "max-size-buffers", 3,
             "max-size-bytes", 0,
-            "max-size-time", (guint64)120000000,
+            "max-size-time", (guint64)200000000,
             NULL);
 
         peer->a_convert = converter;
@@ -395,6 +395,9 @@ static void setup_peer(const gchar *peer_id) {
 
     g_object_set(webrtc,
         "latency", global_config.latency,
+        "jitter-buffer-max-size", 4,
+        "do-retransmission", FALSE,
+        "drop-on-latency", TRUE,
         "bundle-policy", global_config.bundle_policy,
         "stun-server", "stun://127.0.0.1:3478",
         "turn-server", "turn://rtpuser:rtppassword@127.0.0.1:3478",
@@ -423,8 +426,8 @@ static void setup_peer(const gchar *peer_id) {
     // Outgoing queues to peer
     peer->v_queue = gst_element_factory_make("queue", NULL);
     peer->a_queue = gst_element_factory_make("queue", NULL);
-    g_object_set(peer->v_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)300000000, NULL);
-    g_object_set(peer->a_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)300000000, NULL);
+    g_object_set(peer->v_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)250000000, NULL);
+    g_object_set(peer->a_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)250000000, NULL);
 
     gst_bin_add_many(GST_BIN(state.pipeline), webrtc, peer->v_queue, peer->a_queue, NULL);
 
@@ -764,8 +767,9 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true do-timestamp=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! "
-            "queue max-size-time=500000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! x264enc bitrate=4000 "
-            "speed-preset=ultrafast key-int-max=60 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
+            "queue max-size-time=100000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! "
+            "x264enc bitrate=4000 speed-preset=ultrafast key-int-max=25 tune=zerolatency !"
+            "video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
             "h264_tee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
             "raw_atee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! opusenc ! rtpopuspay pt=111 ! tee name=atee "

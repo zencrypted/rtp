@@ -11,6 +11,10 @@ start(_StartType, _StartArgs) ->
     application:set_env(n2o, protocols, [nitro_n2o, n2o_heart]),
     application:set_env(n2o, routes, rtp_routes),
     application:set_env(n2o, mq, rtp_syn),
+    application:set_env(n2o, session, n2o_session),
+    application:set_env(n2o, origin, <<"*">>),
+    application:set_env(n2o, pickler, n2o_secret),
+    application:set_env(n2o, event, pickle),
 
     % 1. Initialize KVS schema bindings
     kvs:join(),

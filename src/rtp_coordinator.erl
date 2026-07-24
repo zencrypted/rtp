@@ -108,62 +108,32 @@ handle_call({chat, Sender, Message}, _From, State) ->
     {reply, ok, State};
 
 handle_call({start_video, PeerId, ClientPid}, _From, State) ->
-    {NewState, BrokerPid} = case State#state.media_broker of
-        undefined ->
-            {ok, Pid} = rtp_broker:start_link(),
-            {State#state{media_broker = Pid}, Pid};
-        Pid ->
-            {State, Pid}
-    end,
-    {Status, StartedAt} = rtp_broker:peer_joined(BrokerPid, State#state.room_id, PeerId, ClientPid),
-    {reply, {Status, StartedAt}, NewState};
+    {Status, StartedAt} = rtp_broker:peer_joined(rtp_broker, State#state.room_id, PeerId, ClientPid),
+    {reply, {Status, StartedAt}, State};
 
 handle_call({sdp_answer, PeerId, Sdp}, _From, State) ->
-    case State#state.media_broker of
-        undefined -> ok;
-        BrokerPid -> rtp_broker:sdp_answer(BrokerPid, State#state.room_id, PeerId, Sdp)
-    end,
+    rtp_broker:sdp_answer(rtp_broker, State#state.room_id, PeerId, Sdp),
     {reply, ok, State};
 
 handle_call({ice_candidate, PeerId, Candidate}, _From, State) ->
-    case State#state.media_broker of
-        undefined -> ok;
-        BrokerPid -> rtp_broker:ice_candidate(BrokerPid, State#state.room_id, PeerId, Candidate)
-    end,
+    rtp_broker:ice_candidate(rtp_broker, State#state.room_id, PeerId, Candidate),
     {reply, ok, State};
 
 handle_call({peer_left, PeerId}, _From, State) ->
-    case State#state.media_broker of
-        undefined -> ok;
-        BrokerPid -> rtp_broker:peer_left(BrokerPid, State#state.room_id, PeerId)
-    end,
+    rtp_broker:peer_left(rtp_broker, State#state.room_id, PeerId),
     {reply, ok, State};
 
 handle_call(get_started_at, _From, State) ->
-    case State#state.media_broker of
-        undefined -> {reply, undefined, State};
-        BrokerPid -> 
-            StartedAt = gen_server:call(BrokerPid, {get_started_at, State#state.room_id}),
-            {reply, StartedAt, State}
-    end;
+    StartedAt = gen_server:call(rtp_broker, {get_started_at, State#state.room_id}),
+    {reply, StartedAt, State};
 
 handle_call(get_peers, _From, State) ->
-    case State#state.media_broker of
-        undefined -> {reply, [], State};
-        BrokerPid -> 
-            Peers = gen_server:call(BrokerPid, {get_peers, State#state.room_id}),
-            {reply, Peers, State}
-    end;
+    Peers = gen_server:call(rtp_broker, {get_peers, State#state.room_id}),
+    {reply, Peers, State};
 
 handle_call(terminate_room, _From, State) ->
-    case State#state.media_broker of
-        undefined ->
-            {reply, {error, not_found}, State};
-        BrokerPid ->
-            Res = rtp_broker:terminate_room(BrokerPid, State#state.room_id),
-            catch gen_server:stop(BrokerPid),
-            {reply, Res, State#state{media_broker = undefined}}
-    end;
+    Res = rtp_broker:terminate_room(rtp_broker, State#state.room_id),
+    {reply, Res, State};
 
 handle_call(get_state, _From, State) ->
     {reply, {ok, State}, State};

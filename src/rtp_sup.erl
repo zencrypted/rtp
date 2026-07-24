@@ -20,6 +20,14 @@ init([]) ->
             shutdown => 2000,
             type => worker,
             modules => [rtp_store]
+        },
+        #{
+            id => rtp_broker,
+            start => {rtp_broker, start_link, []},
+            restart => permanent,
+            shutdown => 2000,
+            type => worker,
+            modules => [rtp_broker]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

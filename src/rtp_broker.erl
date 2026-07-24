@@ -18,7 +18,10 @@
 %% API Functions
 
 start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, [], []) of
+        {ok, Pid} -> {ok, Pid};
+        {error, {already_started, Pid}} -> {ok, Pid}
+    end.
 
 peer_joined(BrokerPid, RoomId, PeerId, ClientPid) ->
     gen_server:call(BrokerPid, {peer_joined, RoomId, PeerId, ClientPid}).

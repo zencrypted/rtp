@@ -11,10 +11,8 @@ compositor from 16 to 32 maximum participants while maintaining real-time perfor
 
 ## Proposed Grid Rendering Strategies (User Selection Required)
 
-> [!IMPORTANT]
-> Please review the three best-practice grid rendering options below and specify which approach best matches your application requirements:
-
 ### Option A: Dynamic Auto-Scaling Matrix (Uniform Grid)
+
 Dynamically adjusts grid dimensions ($C \times R$) based on the number of currently connected participants $N$ (up to 32).
 
 | Active Peers ($N$) | Layout Matrix ($C \times R$) | Tile Dimensions ($W \times H$) |

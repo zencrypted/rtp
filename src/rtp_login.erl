@@ -13,7 +13,6 @@ event(login) ->
     Room = nitro:to_list(nitro:q(pass)),
     n2o:user(User),
     n2o:session(room, Room),
-    %% Navigate client-side: index.htm reads URL params, saves to localStorage, auto-joins
     nitro:wire(<<"localStorage.setItem('rtp_joined', 'true');">>),
     URL = iolist_to_binary(["/app/index.htm?room=", Room, "&user=", User]),
     nitro:wire(<<"window.location.href='", URL/binary, "';">>);

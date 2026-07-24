@@ -224,7 +224,7 @@ updates the session token device field, registers the process in the `rooms` Syn
 | `{"type":"get_room_info"}` | Retrieves `started_at` from broker; pushes `room_info` |
 | `{"type":"get_peers"}` | Retrieves peer list from broker; pushes `peer_list` |
 | `{"type":"ping"}` | No-op keep-alive |
-| `{"sdp":{"type":"answer","sdp":...}}` | Forwards SDP answer to `rtp_coordinator` |
+| `{"type":"answer","sdp":...}` | Forwards SDP answer to `rtp_coordinator` |
 | `{"candidate":...}` | Forwards ICE candidate to `rtp_coordinator` |
 
 `handle_info/2`: Routes Erlang messages to WebSocket pushes:

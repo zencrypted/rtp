@@ -220,7 +220,7 @@ updates the session token device field, registers the process in the `rooms` Syn
 
 | Client Message | Handler Action |
 |---|---|
-| `{"type":"ready"}` | Calls `rtp_coordinator:originate_video/3` — triggers GStreamer peer join |
+| `{"type":"ready"}` | Calls `rtp_coordinator:originate_video/3` — `gst` peer join |
 | `{"type":"get_room_info"}` | Retrieves `started_at` from broker; pushes `room_info` |
 | `{"type":"get_peers"}` | Retrieves peer list from broker; pushes `peer_list` |
 | `{"type":"ping"}` | No-op keep-alive |

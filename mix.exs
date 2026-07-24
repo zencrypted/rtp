@@ -21,7 +21,7 @@ defmodule Rtp.MixProject do
 
   def package do
     [
-      files: ~w(include config lib src priv mix.exs rebar.config README.md GST.md rtp.pdf),
+      files: ~w(config lib src priv mix.exs rebar.config README.md GST.md rtp.pdf),
       licenses: ["ISC"],
       maintainers: ["Namdak Tonpa"],
       name: :rtp,

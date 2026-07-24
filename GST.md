@@ -425,7 +425,7 @@ Current Stable Configuration:
 
 | Component            | Recommended Value | Notes                |
 |----------------------|-------------------|----------------------|
-| webrtcbin latency    | 120 ms            | Extectations         |
+| webrtcbin latency    | 100 ms            | Extectations         |
 | Video jitter queue   | 200 ms            | After decode         |
 | Audio jitter queue   | 250 ms            | After decode         |
 | Outgoing v_queue     | 400 ms            | Critical             |

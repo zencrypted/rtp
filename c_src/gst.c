@@ -72,7 +72,7 @@ static WebRTCConfig global_config = {
     .pem_certificate = NULL,
     .pem_key = NULL,
     .bundle_policy = GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-    .latency = 40
+    .latency = 100
 };
 
 // WSL2 Helpers

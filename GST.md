@@ -419,6 +419,21 @@ iex -S mix
 | Resource reclamation | Six-stage ordered cleanup on every peer departure |
 | Grid capacity | Up to 16 simultaneous participants (4x4 spatial grid) |
 
+## 10. Low Latency Config for Hardware like Raspberry Pi
+
+Current Stable Configuration:
+
+| Component            | Recommended Value | Notes                |
+|----------------------|-------------------|----------------------|
+| webrtcbin latency    | 120 ms            | Extectations         |
+| Video jitter queue   | 200 ms            | After decode         |
+| Audio jitter queue   | 250 ms            | After decode         |
+| Outgoing v_queue     | 400 ms            | Critical             |
+| Outgoing a_queue     | 450 ms            | Audio more sensitive |
+| Pre-encoder queue    | 300 ms            | Before x264enc       |
+| key-int-max          | 60                | Keep higher on Pi    |
+| x264enc speed-preset | ultrafast         | Do not use superfast |
+
 # Credits
 
 * Namdak Tonpa

@@ -17,7 +17,6 @@
         }
 
         document.getElementById('currentUserSpan').textContent = userName + ' (You)';
-        document.getElementById('currentUserSpanSidebar').textContent = userName + ' (You)';
 
         // Sidebar tab selector buttons
         const tabChat = document.getElementById('tabChat');

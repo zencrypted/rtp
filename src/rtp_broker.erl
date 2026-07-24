@@ -41,10 +41,7 @@ recording_path(RoomId) ->
         mp4 -> "/recording.mp4";
         _ -> "/index.m3u8"
     end,
-    case RoomId of
-        <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123" ++ Ext);
-        _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId) ++ Ext)
-    end.
+    "priv/static/rooms/" ++ binary_to_list(RoomId) ++ Ext.
 
 %% gen_server Callbacks
 
@@ -126,7 +123,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
         end
     end, Peers),
 
-    PlaylistPath = recording_path(RoomId),
+    PlaylistPath = filename:absname(recording_path(RoomId)),
     Status = case filelib:is_regular(PlaylistPath) andalso filelib:file_size(PlaylistPath) > 0 of
         true -> ok;
         false -> pending
@@ -260,7 +257,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State) ->
     end;
 
 handle_info({poll_manifest, RoomId, StartedAt, Attempts}, State) ->
-    PlaylistPath = recording_path(RoomId),
+    PlaylistPath = filename:absname(recording_path(RoomId)),
     case filelib:is_regular(PlaylistPath) andalso filelib:file_size(PlaylistPath) > 0 of
         true ->
             error_logger:info_msg("HLS manifest ~s is ready on disk. Notifying clients.~n", [PlaylistPath]),

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ВКЗ: Відеоконференцзв'язок (MCU GStreamer)</title>
+    <title>RTP: Конференцзв'язок</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/blank.css" />
     <link rel="stylesheet" href="/css/color.css" />
@@ -12,7 +12,7 @@
 
     <nav>
         <div class="logo-section">
-            <h1>ВКЗ</h1>
+            <h1>Конференцзв'язок</h1> |
             <span id="heading"></span>
         </div>
         <div style="display: flex; align-items: center; gap: 1.5rem;">
@@ -83,16 +83,13 @@
             <!-- Active Members Tab View -->
             <div class="chat-section" id="membersSection" style="display: none; padding: 1.2rem; overflow-y: auto;">
                 <div class="users-list" id="membersList">
-                    <div class="user-item">
-                        <div class="user-status"></div>
-                        <span id="currentUserSpanSidebar">Connecting...</span>
-                    </div>
                 </div>
             </div>
 
             <!-- Recording Status & Room Controls -->
             <div style="padding: 1.2rem; border-top: 1px solid var(--border-color); background: rgba(15, 18, 29, 0.45);">
                 <div id="recording_info" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.8rem; word-break: break-all;"></div>
+                <br><br>
                 <span id="terminate"></span>
             </div>
         </aside>

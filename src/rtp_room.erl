@@ -24,7 +24,7 @@ event(init) ->
             RoomBin = list_to_binary(Room),
             RecPath = rtp_broker:recording_path(RoomBin),
             nitro:update(recording_info, #span{id = recording_info,
-                                               body = [<<"📹 ">>, RecPath]}),
+                                               body = [RecPath]}),
 
             %% Ensure room coordinator is started (which creates the Mnesia table)
             {ok, RoomPid} = rtp_coordinator:ensure_started(Room),

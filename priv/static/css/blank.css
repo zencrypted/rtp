@@ -6,8 +6,7 @@ nav { display: flex; justify-content: space-between; align-items: center;
 .logo-section { display: flex; align-items: center; gap: 0.5rem; }
 .logo-section h1 { font-size: 1.4rem; font-weight: 800; letter-spacing: 0.5px;
                    margin: 0; }
-.logo-section p, #heading, .room-subtitle { font-size: 0.75rem;
-    font-weight: 300; margin: 0; }
+.logo-section p, #heading, .room-subtitle { font-size: 1rem; font-weight: 300; margin: 0; }
 #heading h2 { font-size: 0.8rem; font-weight: 600; display: inline; }
 main { display: grid; grid-template-columns: 1fr 380px; flex: 1;
        height: calc(100vh - 73px); overflow: hidden; }

@@ -129,8 +129,6 @@ static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx, c
     }
 }
 
-/* Remote description is set synchronously upon set-remote-description signal emit */
-
 // Part 2: Signaling & Core Callbacks
 
 // IO channel callback for stdin signaling
@@ -166,7 +164,6 @@ static void send_to_erlang(JsonNode *root) {
 }
 
 static void on_offer_created(GstPromise *promise, gpointer user_data) {
-    // (Same as your original - unchanged)
     gchar *peer_id = (gchar *)user_data;
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *offer = NULL;
@@ -254,8 +251,9 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
 
         GstElement *jitter = gst_element_factory_make("queue", NULL);
 
-        // Memory Optimization: Use a small, non-leaky thread boundary queue
+        // Memory Optimization: Use a small 200ms Video Queue, non-leaky thread boundary queue
         // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
+
         g_object_set(jitter,
             "max-size-buffers", 3,
             "max-size-bytes", 0,
@@ -305,7 +303,9 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
         GstElement *jitter = gst_element_factory_make("queue", NULL);
 
-        // Small, non-leaky queue to decouple audio decoding thread from audiomixer
+        // Memory Optimization: Use a small 250ms Audio Queue, non-leaky thread boundary queue
+        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
+
         g_object_set(jitter,
             "max-size-buffers", 3,
             "max-size-bytes", 0,
@@ -373,7 +373,7 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
     g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
 }
 
-// ==================== SETUP PEER (Simplified) ====================
+// Setup Peer called on each new Participant
 
 static void setup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Setting up peer: %s\n", peer_id);
@@ -388,22 +388,17 @@ static void setup_peer(const gchar *peer_id) {
     }
 
     // WebRTC Latency Profile:
-    // - 50ms: Aggressive low-latency. Requires excellent fiber/LAN connections.
-    // - 120ms: Balanced default. Suitable for typical broadband and TURN relay.
-    // - 200ms+: High latency. Recommended for 3G/Mobile networks with high packet jitter.
-    // Note: This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
+    // - 50ms   : Aggressive low-latency. Requires excellent fiber/LAN connections.
+    // - 100ms  : Balanced default. Suitable for typical broadband and TURN relay.
+    // - 200ms+ : High latency. Recommended for 3G/Mobile networks with high packet jitter.
+    // This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
 
     g_object_set(webrtc,
         "latency", global_config.latency,
-        "jitter-buffer-max-size", 4,
-        "do-retransmission", FALSE,
-        "drop-on-latency", TRUE,
         "bundle-policy", global_config.bundle_policy,
-        "stun-server", "stun://127.0.0.1:3478",
-        "turn-server", "turn://rtpuser:rtppassword@127.0.0.1:3478",
         NULL);
 
-    /* pem-certificate/pem-key removed (not supported in GStreamer 1.20.x on Ubuntu 22.04) */
+    /* TODO: pem-certificate/pem-key removed (not supported in GStreamer 1.20.x on Ubuntu 22.04 properly) */
 
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
@@ -413,7 +408,6 @@ static void setup_peer(const gchar *peer_id) {
     peer->bundled = FALSE;
     peer->pending_ice_candidates = g_array_new(FALSE, FALSE, sizeof(PendingIceCandidate));
 
-    // Grid slot
     for (int i = 0; i < 16; i++) {
         if (!state.grid_slots[i]) {
             state.grid_slots[i] = TRUE;
@@ -421,17 +415,21 @@ static void setup_peer(const gchar *peer_id) {
             break;
         }
     }
+
     if (peer->grid_idx == -1) peer->grid_idx = 0;
 
-    // Outgoing queues to peer
+    // Setup sizes of A/V Intermediary Queues
+
     peer->v_queue = gst_element_factory_make("queue", NULL);
     peer->a_queue = gst_element_factory_make("queue", NULL);
+
     g_object_set(peer->v_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)400000000, NULL);
     g_object_set(peer->a_queue, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)450000000, NULL);
 
     gst_bin_add_many(GST_BIN(state.pipeline), webrtc, peer->v_queue, peer->a_queue, NULL);
 
     // Link broadcast (vtee/atee) → this peer
+
     GstPad *vtee_src = gst_element_request_pad_simple(state.video_tee, "src_%u");
     GstPad *vqueue_sink = gst_element_get_static_pad(peer->v_queue, "sink");
     GstPad *vqueue_src = gst_element_get_static_pad(peer->v_queue, "src");
@@ -441,6 +439,7 @@ static void setup_peer(const gchar *peer_id) {
     gst_pad_link(vqueue_src, webrtc_vsink);
 
     // Same for audio...
+
     GstPad *atee_src = gst_element_request_pad_simple(state.audio_tee, "src_%u");
     GstPad *aqueue_sink = gst_element_get_static_pad(peer->a_queue, "sink");
     GstPad *aqueue_src = gst_element_get_static_pad(peer->a_queue, "src");
@@ -450,6 +449,7 @@ static void setup_peer(const gchar *peer_id) {
     gst_pad_link(aqueue_src, webrtc_asink);
 
     // Cleanup pads
+
     gst_object_unref(vtee_src); gst_object_unref(vqueue_sink); gst_object_unref(vqueue_src); gst_object_unref(webrtc_vsink);
     gst_object_unref(atee_src); gst_object_unref(aqueue_sink); gst_object_unref(aqueue_src); gst_object_unref(webrtc_asink);
 
@@ -457,16 +457,19 @@ static void setup_peer(const gchar *peer_id) {
     gst_element_sync_state_with_parent(peer->a_queue);
     gst_element_sync_state_with_parent(webrtc);
 
+    // Register Peer
+
     g_hash_table_insert(state.webrtcbins, g_strdup(peer_id), peer);
 
-    g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
-    g_signal_connect(webrtc, "pad-added", G_CALLBACK(on_incoming_pad), peer);
+    // Setup Peer Handlers and Signals
 
+    g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
+    g_signal_connect(webrtc, "pad-added",        G_CALLBACK(on_incoming_pad), peer);
     GstPromise *promise = gst_promise_new_with_change_func(on_offer_created, g_strdup(peer_id), g_free);
     g_signal_emit_by_name(webrtc, "create-offer", NULL, promise);
 }
 
-// ==================== CLEANUP ====================
+// Cleanup Peer
 
 static void cleanup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Cleaning up peer: %s\n", peer_id);
@@ -474,6 +477,7 @@ static void cleanup_peer(const gchar *peer_id) {
     if (!peer) return;
 
     // Release compositor and jitter queue
+
     if (peer->comp_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->comp_pad);
         if (peer_pad) {
@@ -505,6 +509,7 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release audiomixer pad, remove dynamic audio resampler, converter and decodebin
+
     if (peer->amix_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->amix_pad);
         if (peer_pad) {
@@ -532,6 +537,7 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release video tee src pad, remove v_queue
+
     if (peer->v_queue) {
         GstPad *sink = gst_element_get_static_pad(peer->v_queue, "sink");
         if (sink) {
@@ -548,6 +554,7 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release audio tee src pad, remove a_queue
+
     if (peer->a_queue) {
         GstPad *sink = gst_element_get_static_pad(peer->a_queue, "sink");
         if (sink) {
@@ -575,7 +582,9 @@ static void cleanup_peer(const gchar *peer_id) {
 }
 
 static void handle_signaling_message(const gchar *json_str) {
-    // Same as your original (unchanged)
+
+    // Erlang Port Text Protocol (JSON)
+
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, json_str, -1, NULL)) {
         g_object_unref(parser); return;
@@ -817,6 +826,7 @@ int main(int argc, char *argv[]) {
     g_printerr("{\"type\": \"recording_started\"}\n");
 
     // Setup stdin signaling channel reader via GLib IO channels
+
     GIOChannel *stdin_chan = g_io_channel_unix_new(0); // 0 = stdin
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);
     g_io_channel_unref(stdin_chan);

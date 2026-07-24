@@ -1,7 +1,7 @@
-defmodule Rtp.Static do
+defmodule RTP.Static do
   use Plug.Router
 
-  plug Rtp.LiveStream
+  plug RTP.HLS
   plug Plug.Static, at: "/app", from: {:rtp, "priv/static/app"}
   plug Plug.Static, at: "/",    from: {:rtp, "priv/static"}, headers: [{"cache-control", "no-cache"}]
   plug :match

@@ -1,4 +1,4 @@
-defmodule Rtp.LiveStream do
+defmodule RTP.HLS do
   import Plug.Conn
 
   def init(options), do: options
@@ -29,9 +29,9 @@ defmodule Rtp.LiveStream do
               |> send_resp(200, File.read!(file_path))
               |> halt()
             else
-              conn 
+              conn
               |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
-              |> send_resp(404, "Not Found") 
+              |> send_resp(404, "Not Found")
               |> halt()
             end
           String.ends_with?(file_name, ".ts") ->
@@ -46,9 +46,9 @@ defmodule Rtp.LiveStream do
               Logger.info("Served #{file_name} in #{time_us / 1000} ms")
               conn |> halt()
             else
-              conn 
+              conn
               |> put_resp_header("cache-control", "no-store, no-cache, must-revalidate, max-age=0")
-              |> send_resp(404, "Not Found") 
+              |> send_resp(404, "Not Found")
               |> halt()
             end
           true ->

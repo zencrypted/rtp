@@ -18,8 +18,8 @@ start(_StartType, _StartArgs) ->
 
     kvs:join(),
     ok = syn:add_node_to_scopes([rooms, n2o_mq]),
-    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.Rtp.WS'}, {port, 8001}]),
-    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.Rtp.Static'}, {port, 8081}]),
+    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.RTP.WS'}, {port, 8001}]),
+    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.RTP.Static'}, {port, 8081}]),
     rtp_sup:start_link().
 
 stop(_State) ->

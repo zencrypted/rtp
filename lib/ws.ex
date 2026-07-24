@@ -1,4 +1,4 @@
-defmodule Rtp.WS do
+defmodule RTP.WS do
   use Plug.Router
 
   plug :match
@@ -14,7 +14,7 @@ defmodule Rtp.WS do
       _           -> :rtp_login
     end
     conn
-    |> WebSockAdapter.upgrade(Rtp.N2O, [module: target_mod], timeout: 30_000)
+    |> WebSockAdapter.upgrade(RTP.N2O, [module: target_mod], timeout: 30_000)
     |> halt()
   end
 

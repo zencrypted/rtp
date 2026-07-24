@@ -1,4 +1,4 @@
-defmodule Rtp.N2O do
+defmodule RTP.N2O do
   require N2O
 
   def init(args) do {:ok, N2O.cx(module: Keyword.get(args, :module, :login))} end

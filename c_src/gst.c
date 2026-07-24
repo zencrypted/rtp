@@ -734,12 +734,12 @@ int main(int argc, char *argv[]) {
             "audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "h264_tee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_atee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
             "mp4mux name=mux fragment-duration=1000 streamable=true ! filesink location=%s/recording.mp4 sync=false async=false "
-            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! mux.video_0 "
-            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
+            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream ! mux.video_0 "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! mux.audio_0",
             out_dir
         );
     } else if (g_strcmp0(format, "hevc") == 0 || g_strcmp0(format, "h265") == 0) {
@@ -748,11 +748,11 @@ int main(int argc, char *argv[]) {
             "videotestsrc pattern=black is-live=true do-timestamp=true ! timeoverlay valignment=bottom halignment=right font-desc=\"Sans, 48\" ! video/x-raw,width=1920,height=1080,framerate=30/1 ! mix.sink_0 "
             "audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! tee name=raw_vtee "
-            "raw_vtee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "raw_vtee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! x264enc bitrate=4000 speed-preset=ultrafast key-int-max=30 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
-            "raw_vtee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 flush-on-eos=true ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h265parse ! hlssink2.video "
-            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 flush-on-eos=true ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
+            "raw_atee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "raw_vtee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! x265enc bitrate=4000 speed-preset=ultrafast tune=zerolatency key-int-max=60 ! h265parse ! hlssink2.video "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 async-handling=true location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
             out_dir, ts, out_dir
         );
@@ -763,11 +763,11 @@ int main(int argc, char *argv[]) {
             "audiotestsrc is-live=true do-timestamp=true volume=0 ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ! x264enc bitrate=4000 "
             "speed-preset=ultrafast key-int-max=60 tune=zerolatency ! video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
-            "h264_tee. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=2 ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
+            "h264_tee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "
-            "raw_atee. ! queue max-size-buffers=5 max-size-bytes=0 max-size-time=0 leaky=2 ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
-            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 flush-on-eos=true ! hlssink2.video "
-            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=2 flush-on-eos=true ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
+            "raw_atee. ! queue max-size-time=1000000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! opusenc ! rtpopuspay pt=111 ! tee name=atee "
+            "h264_tee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! hlssink2.video "
+            "raw_atee. ! queue max-size-time=30000000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse ! hlssink2.audio "
             "hlssink2 name=hlssink2 async-handling=true location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10",
             out_dir, ts, out_dir
         );

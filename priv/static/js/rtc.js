@@ -3,21 +3,16 @@
         const urlParams = new URLSearchParams(window.location.search);
         const roomName     = urlParams.get('room')  || sessionStorage.getItem('rtp_room')  || 'lobby';
         const userName     = urlParams.get('user')  || sessionStorage.getItem('rtp_user')  || 'guest';
-        const sessionToken = urlParams.get('token') || sessionStorage.getItem('rtp_token') || '';
 
         // Persist within this browser tab only
         sessionStorage.setItem('rtp_room', roomName);
         sessionStorage.setItem('rtp_user', userName);
-        if (sessionToken) {
-            sessionStorage.setItem('rtp_token', sessionToken);
-        }
 
         // Keep URL in sync in address bar
-        if (!urlParams.get('room') || !urlParams.get('user') || (sessionToken && !urlParams.get('token'))) {
+        if (!urlParams.get('room') || !urlParams.get('user')) {
             const next = new URL(window.location.href);
             next.searchParams.set('room', roomName);
             next.searchParams.set('user', userName);
-            if (sessionToken) next.searchParams.set('token', sessionToken);
             history.replaceState(null, '', next.toString());
         }
 
@@ -61,7 +56,7 @@
 
         function connectSignaling() {
             // Connect to signaling websocket using fallback auth query params
-            signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName) + '&token=' + encodeURIComponent(sessionToken));
+            signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName));
 
             signalingWs.onopen = () => {
                 console.log('Signaling connected — standing by for init');

@@ -14,7 +14,6 @@ into a single cohesive Erlang/OTP application.
 ├── c_src/
 │   └── gst.c                    # GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── rtp_token.hrl            # rtp_token record: token, user, room, device, expiry
 ├── config/
 │   ├── config.exs               # Elixir/OTP application environment
 │   ├── sys.config               # Mnesia dir, N2O parameters, port bindings
@@ -52,8 +51,7 @@ into a single cohesive Erlang/OTP application.
 │   ├── rtp_app.erl              # OTP Application: listeners, Syn scopes, session table, banner
 │   ├── rtp_sup.erl              # OTP Supervisor (one_for_one): rtp_store worker
 │   ├── rtp_syn.erl              # N2O MQ backend: wraps Syn v3 pub/sub as N2O pool registry
-│   ├── rtp.app.src              # Application descriptor and dependency list
-│   └── rtp_token.erl            # ETS-backed session token: issue, validate, update_device
+│   └── rtp.app.src              # Application descriptor and dependency list
 ├── mix.exs                      # Elixir package manager (Hex dependencies)
 ├── rebar.config                 # Rebar3 build configuration
 ├── GST.md                       # GStreamer MCU compositor specification
@@ -161,10 +159,9 @@ predictable latency, and granular crash recovery:
 
 1. Configures N2O: port `8001`, protocols `[nitro_n2o, n2o_heart]`, MQ backend `rtp_syn`.
 2. Calls `kvs:join()` to initialize the KVS schema layer.
-3. Calls `rtp_token:init_table()` to create the ETS session store.
-4. Registers the `rooms` and `n2o_mq` Syn scopes via `syn:add_node_to_scopes/1`.
-5. Spawns two Bandit listeners: WebSocket on port `8001`, static assets on port `8081`.
-6. Starts `rtp_sup`.
+3. Registers the `rooms` and `n2o_mq` Syn scopes via `syn:add_node_to_scopes/1`.
+4. Spawns two Bandit listeners: WebSocket on port `8001`, static assets on port `8081`.
+5. Starts `rtp_sup`.
 
 The startup banner reports hardware capacity heuristics:
 
@@ -178,27 +175,7 @@ The startup banner reports hardware capacity heuristics:
 permanent worker: `rtp_store`. Room coordinators and media brokers are started
 transiently on-demand by `rtp_coordinator:ensure_started/1`.
 
-### 3.3 Session Authentication — `rtp_token.erl`
-
-```erlang
--record(rtp_token, {
-    token  :: binary(),             % Unique opaque session token
-    user   :: binary(),             % Username
-    room   :: binary(),             % Room name
-    device :: binary() | undefined, % WebRTC peer_id (populated on WebSocket connect)
-    expiry :: integer()             % Gregorian seconds expiry (issue time + 180 s)
-}).
-```
-
-Token lifecycle:
-
-* `issue(User, Room)` — generates a cryptographic token via `n2o_secret:sid/1`,
-  stores the record in the `rtp_tokens` ETS table with a 3-minute TTL.
-* `validate(Token)` — looks up the ETS table, rejects expired entries and removes them.
-* `update_device(Token, PeerId)` — associates the ephemeral WebRTC `peer_id` with
-  the session on first WebSocket connection.
-
-### 3.4 WebSocket Signaling — `rtp_signaling.erl`
+### 3.3 WebSocket Signaling — `rtp_signaling.erl`
 
 Implements the `Elixir.WebSock` behaviour. State record:
 
@@ -213,7 +190,7 @@ Implements the `Elixir.WebSock` behaviour. State record:
 ```
 
 `init/1`: Generates a unique `peer_id`, ensures the `rtp_coordinator` is started,
-updates the session token device field, registers the process in the `rooms` Syn scope
+registers the process in the `rooms` Syn scope
 (`syn:register(rooms, PeerId, self())`), and sends `send_init_msg` to itself.
 
 `handle_in/2`: Decodes JSON text frames and dispatches:
@@ -365,16 +342,15 @@ Erlang page modules:
 N2O Nitro page. The `login` event:
 
 1. Reads `user` and `pass` (room name) form fields via `nitro:q/1`.
-2. Issues a session token via `rtp_token:issue/2`.
-3. Stores user and token in the N2O session.
-4. Writes `localStorage.setItem('rtp_joined', 'true')` via `nitro:wire/1`.
-5. Redirects to `/app/index.htm?room=<room>&user=<user>&token=<token>`.
+2. Stores user and room in the N2O session.
+3. Writes `localStorage.setItem('rtp_joined', 'true')` via `nitro:wire/1`.
+4. Redirects to `/app/index.htm?room=<room>&user=<user>`.
 
 ### 3.11 Index Page — `rtp_room.erl`
 
 N2O Nitro page serving the conference room interface. The `init` event:
 
-1. Validates the session token from URL params or session store.
+1. Validates the room and user from N2O session.
 2. Registers the process on the room topic (`n2o:reg({topic, Room})`).
 3. Renders the logout button, room heading, chat send button, upload widget, and
    terminate button.

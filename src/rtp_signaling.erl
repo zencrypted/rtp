@@ -11,14 +11,9 @@
     room_pid :: pid()
 }).
 
-init({UserId, RoomId, Role, Token}) ->
+init({UserId, RoomId, Role, _Token}) ->
     PeerId = <<"peer_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
     {ok, RoomPid} = rtp_coordinator:ensure_started(RoomId),
-    case Token of
-        undefined -> ok;
-        <<>> -> ok;
-        _ -> rtp_token:update_device(Token, PeerId)
-    end,
     State = #state{
         user_id = UserId,
         room_id = RoomId,

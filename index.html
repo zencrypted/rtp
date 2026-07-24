@@ -101,7 +101,6 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 ├── c_src/
 │   └── gst.c                 GStreamer WebRTC MCU compositor — C99, 668 lines
 ├── include/
-│   └── rtp_token.hrl         rtp_token record: token, user, room, device, expiration
 ├── priv/
 │   ├── gst                   Compiled native C99 binary spawned by Erlang port
 │   └── static/
@@ -127,29 +126,17 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
     ├── rtp_coordinator.erl   gen_server: room state, participants, media delegation
     ├── rtp_app.erl           OTP Application: listeners, Syn scopes, session table
     ├── rtp_sup.erl           OTP Supervisor one_for_one: rtp_store worker
-    ├── rtp_syn.erl           N2O MQ backend: Syn v3 pub/sub as N2O pool registry
-    └── rtp_token.erl         ETS-backed session token: issue, validate, update_device
+    └── rtp_syn.erl           N2O MQ backend: Syn v3 pub/sub as N2O pool registry
     </code></figure>
   </section>
 
   <section>
     <h3>Erlang/OTP Control Plane</h3>
     <p><b>rtp_app.erl</b> — Application bootstrap. Configures N2O on port 8001,
-    calls <code>kvs:join()</code>, initializes the ETS session store, registers
+    calls <code>kvs:join()</code>, registers
     Syn scopes (<code>rooms</code>, <code>n2o_mq</code>), spawns Bandit listeners
     (WS:8001, HTTP:8081), and starts <code>rtp_sup</code>. Startup banner reports
     <code>MaxRooms = cores × 10</code>, <code>RoomCapacity = 50</code>.</p>
-
-    <p><b>rtp_token.erl</b> — ETS-backed session tokens with 3-minute TTL.</p>
-    <figure><code>
--record(rtp_token, {
-    token  :: binary(),             % Unique opaque session token
-    user   :: binary(),             % Username
-    room   :: binary(),             % Room name
-    device :: binary() | undefined, % WebRTC peer_id — set on WS connect
-    expiry :: integer()             % Gregorian seconds expiry
-}).
-    </code></figure>
 
     <p><b>rtp_signaling.erl</b> — WebSock handler implementing <code>Elixir.WebSock</code>.
     Dispatches incoming JSON frames:</p>

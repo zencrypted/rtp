@@ -15,9 +15,6 @@ start(_StartType, _StartArgs) ->
     % 1. Initialize KVS schema bindings
     kvs:join(),
 
-    % Initialize session tokens ETS table
-    rtp_token:init_table(),
-
     % 2. Initialize Syn registry rooms scope
     ok = syn:add_node_to_scopes([rooms, n2o_mq]),
 

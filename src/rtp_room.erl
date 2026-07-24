@@ -2,30 +2,14 @@
 -export([event/1, jse/1]).
 -include_lib("nitro/include/nitro.hrl").
 -include_lib("n2o/include/n2o.hrl").
--include("rtp_token.hrl").
 
 event(init) ->
-    Req = (get(context))#cx.req,
-    QS  = case is_map(Req) of
-        true -> maps:get(qs, Req, <<>>);
-        false -> <<>>
-    end,
-    Params = uri_string:dissect_query(QS),
-    Token = case proplists:get_value(<<"token">>, Params) of
-        undefined ->
-            case n2o:session(token) of
-                undefined -> <<>>;
-                T0 -> T0
-            end;
-        T -> T
-    end,
-    case rtp_token:validate(Token) of
-        {ok, #rtp_token{user = UserBin, room = RoomBin}} ->
-            Room = binary_to_list(RoomBin),
-            User = binary_to_list(UserBin),
-            n2o:session(room, Room),
-            n2o:user(User),
-            n2o:session(token, Token),
+    Room = n2o:session(room),
+    User = n2o:user(),
+    case {Room, User} of
+        {undefined, _} -> nitro:redirect("/app/login.htm");
+        {_, undefined} -> nitro:redirect("/app/login.htm");
+        {R, U} when R =/= [] andalso U =/= [] ->
             Key  = {topic, Room},
             n2o:reg(Key),
             n2o:reg(n2o:sid()),
@@ -37,6 +21,7 @@ event(init) ->
                                             postback = chat, source = [message]}),
             nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>,
                                             postback = terminate_room, class = <<"btn-danger">>}),
+            RoomBin = list_to_binary(Room),
             RecPath = rtp_broker:recording_path(RoomBin),
             nitro:update(recording_info, #span{id = recording_info,
                                                body = [<<"📹 ">>, RecPath]}),
@@ -77,11 +62,6 @@ event(init) ->
 event(logout) ->
     Room  = n2o:session(room),
     User  = n2o:user(),
-    Token = n2o:session(token),
-    case Token of
-        undefined -> ok;
-        _ -> ets:delete(rtp_tokens, Token)
-    end,
     case Room of
         undefined -> ok;
         _ ->
@@ -90,7 +70,6 @@ event(logout) ->
             n2o:send({topic, Room}, #client{data = {member_left, User}})
     end,
     n2o:user([]),
-    n2o:session(token, undefined),
     nitro:redirect("/app/login.htm");
 
 event(chat) -> chat(nitro:q(message), nitro);

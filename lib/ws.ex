@@ -24,9 +24,8 @@ defmodule Rtp.WS do
     user  = Map.get(conn.query_params, "user", "Anonymous")
     room  = Map.get(conn.query_params, "room", "default")
     role  = Map.get(conn.query_params, "role", "participant")
-    token = Map.get(conn.query_params, "token", "")
     conn
-    |> WebSockAdapter.upgrade(:rtp_signaling, {user, room, role, token}, timeout: 30_000)
+    |> WebSockAdapter.upgrade(:rtp_signaling, {user, room, role, ""}, timeout: 30_000)
     |> halt()
   end
 

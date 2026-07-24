@@ -305,8 +305,8 @@ lines received from the GStreamer process and dispatches:
 
 | GStreamer Output | Erlang Action |
 |---|---|
-| `{"type":"sdp_offer","peer_id":"...","sdp":"..."}` | Sends `{sdp_offer, Sdp}` to the peer's signaling process via `syn:lookup` |
-| `{"type":"ice_candidate","peer_id":"...","candidate":{...}}` | Sends `{ice_candidate, Candidate}` to the peer's signaling process |
+| `{"type":"sdp_offer","peer_id":...}` | Sends `{sdp_offer, Sdp}` to the peer's signaling process via `syn:lookup` |
+| `{"type":"ice_candidate","peer_id":...}` | Sends `{ice_candidate, Candidate}` to the peer's signaling process |
 | `{"type":"recording_started"}` | Records real start time; begins polling for `index.m3u8` manifest |
 
 **Manifest polling** (`poll_manifest`): After `recording_started`, polls

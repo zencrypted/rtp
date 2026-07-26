@@ -145,8 +145,8 @@ static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer
             g_free(line);
         }
     } else if (status == G_IO_STATUS_EOF || status == G_IO_STATUS_ERROR) {
-        g_printerr("DEBUG: stdin EOF or error, exiting main loop...\n");
-        g_main_loop_quit(state.loop);
+        g_printerr("DEBUG: stdin EOF or error, sending EOS to pipeline...\n");
+        if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
         if (error) {
             g_printerr("Error reading stdin: %s\n", error->message);
             g_clear_error(&error);
@@ -685,6 +685,9 @@ static void handle_signaling_message(const gchar *json_str) {
     } else if (g_strcmp0(type, "peer_left") == 0) {
         const gchar *peer_id = json_object_get_string_member(root, "peer_id");
         cleanup_peer(peer_id);
+    } else if (g_strcmp0(type, "stop") == 0) {
+        g_printerr("DEBUG: Received stop command, sending EOS...\n");
+        if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
     }
     g_object_unref(parser);
 }

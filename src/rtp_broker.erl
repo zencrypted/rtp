@@ -217,10 +217,12 @@ handle_info({Port, {exit_status, Status}}, State) ->
             Peers = maps:get(RoomId, State#state.room_peers, []),
             NewPeerRooms = lists:foldl(fun(P, M) -> maps:remove(P, M) end, State#state.peer_rooms, Peers),
             NewRoomPeers = maps:remove(RoomId, State#state.room_peers),
+            NewStartedAt = maps:remove(RoomId, State#state.room_started_at),
             {noreply, State#state{
                 ports = NewPorts,
                 room_peers = NewRoomPeers,
-                peer_rooms = NewPeerRooms
+                peer_rooms = NewPeerRooms,
+                room_started_at = NewStartedAt
             }}
     end;
 
@@ -273,16 +275,9 @@ handle_info({check_empty, RoomId}, State) ->
         [] ->
             case maps:find(RoomId, State#state.ports) of
                 {ok, Port} ->
-                    error_logger:info_msg("Room ~s empty for 15s. Closing GStreamer.~n", [RoomId]),
-                    catch port_close(Port),
-                    NewPorts = maps:remove(RoomId, State#state.ports),
-                    NewRoomPeers = maps:remove(RoomId, State#state.room_peers),
-                    NewStartedAt = maps:remove(RoomId, State#state.room_started_at),
-                    {noreply, State#state{
-                        ports = NewPorts,
-                        room_peers = NewRoomPeers,
-                        room_started_at = NewStartedAt
-                    }};
+                    error_logger:info_msg("Room ~s empty for 15s. Sending stop to GStreamer.~n", [RoomId]),
+                    send_to_port(Port, #{<<"type">> => <<"stop">>}),
+                    {noreply, State};
                 error ->
                     {noreply, State}
             end;
@@ -295,7 +290,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State) ->
-    maps:map(fun(_, Port) -> catch port_close(Port) end, State#state.ports),
+    maps:map(fun(_, Port) -> send_to_port(Port, #{<<"type">> => <<"stop">>}) end, State#state.ports),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -304,16 +299,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Helpers
 
 send_to_port(Port, Map) ->
-    Json = json:encode(Map),
+    Json = iolist_to_binary(json:encode(Map)),
     port_command(Port, [Json, <<"\n">>]).
 
 notify_room_info(RoomId, StartedAt, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),
-    RoomInfoMsg = json:encode(#{
+    RoomInfoMsg = iolist_to_binary(json:encode(#{
         <<"type">> => <<"room_info">>,
         <<"started_at">> => StartedAt,
         <<"hls_format">> => HlsFormat
-    }),
+    })),
     Msg = {'$msg', kvs:seq([], []), [], [], <<"System">>, RoomInfoMsg},
     n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
 
@@ -346,7 +341,7 @@ handle_peer_departure(RoomId, PeerId, State) ->
             case NewPeers of
                 [] ->
                     error_logger:info_msg("Last peer left room ~s. Will close MCU in 15s if empty.~n", [RoomId]),
-                    erlang:send_after(1000, self(), {check_empty, RoomId}),
+                    erlang:send_after(15000, self(), {check_empty, RoomId}),
                     NewRoomPeers = maps:put(RoomId, [], State#state.room_peers),
                     State#state{
                         room_peers = NewRoomPeers,

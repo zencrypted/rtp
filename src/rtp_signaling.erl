@@ -48,7 +48,7 @@ handle_in({Msg, Opts} = Frame, State) ->
                     ok;
                 <<"get_peers">> ->
                     Peers = gen_server:call(State#state.room_pid, get_peers),
-                    Payload = json:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers}),
+                    Payload = iolist_to_binary(json:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers})),
                     self() ! {send_payload, Payload};
                 _ ->
                     case Data of
@@ -69,42 +69,42 @@ handle_in(Frame, State) ->
     {ok, State}.
 
 handle_info(send_init_msg, State) ->
-    InitMsg = json:encode(#{
+    InitMsg = iolist_to_binary(json:encode(#{
         <<"type">> => <<"init">>,
         <<"peer_id">> => State#state.peer_id
-    }),
+    })),
     {push, {text, InitMsg}, State};
 
 handle_info({send_room_info, StartedAt}, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),
-    RoomInfoMsg = json:encode(#{
+    RoomInfoMsg = iolist_to_binary(json:encode(#{
         <<"type">> => <<"room_info">>,
         <<"started_at">> => StartedAt,
         <<"hls_format">> => HlsFormat
-    }),
+    })),
     {push, {text, RoomInfoMsg}, State};
 
 handle_info({sdp_offer, Sdp}, State) ->
-    Payload = json:encode(#{
+    Payload = iolist_to_binary(json:encode(#{
         <<"sdp">> => #{
             <<"type">> => <<"offer">>,
             <<"sdp">> => Sdp
         }
-    }),
+    })),
     {push, {text, Payload}, State};
 
 handle_info({ice_candidate, Candidate}, State) ->
-    Payload = json:encode(#{
+    Payload = iolist_to_binary(json:encode(#{
         <<"candidate">> => Candidate
-    }),
+    })),
     {push, {text, Payload}, State};
 
 handle_info({peer_joined, PeerId}, State) ->
-    Payload = json:encode(#{<<"type">> => <<"peer_joined">>, <<"peer_id">> => PeerId}),
+    Payload = iolist_to_binary(json:encode(#{<<"type">> => <<"peer_joined">>, <<"peer_id">> => PeerId})),
     {push, {text, Payload}, State};
 
 handle_info({peer_left, PeerId}, State) ->
-    Payload = json:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
+    Payload = iolist_to_binary(json:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId})),
     {push, {text, Payload}, State};
 
 handle_info({send_payload, Payload}, State) ->

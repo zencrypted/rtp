@@ -17,14 +17,11 @@ event(init) ->
             nitro:update(logout,    #button{id = logout, body = "Logout " ++ User, postback = logout}),
             nitro:update(heading,   #h2{id = heading, body = Room}),
             nitro:update(upload,    #upload{}),
-            nitro:update(send,      #button{id = send, body = <<"Chat">>,
-                                            postback = chat, source = [message]}),
-            nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>,
-                                            postback = terminate_room, class = <<"btn-danger">>}),
+            nitro:update(send,      #button{id = send, body = <<"Chat">>, postback = chat, source = [message]}),
+            nitro:update(terminate, #button{id = terminate, body = <<"⏹ Terminate Room">>, postback = terminate_room, class = <<"btn-danger">>}),
             RoomBin = list_to_binary(Room),
             RecPath = rtp_broker:recording_path(RoomBin),
-            nitro:update(recording_info, #span{id = recording_info,
-                                               body = [RecPath]}),
+            nitro:update(recording_info, #span{id = recording_info, body = [RecPath]}),
 
             %% Ensure room coordinator is started (which creates the Mnesia table)
             {ok, RoomPid} = rtp_coordinator:ensure_started(Room),

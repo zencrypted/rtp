@@ -7,7 +7,7 @@ start(_StartType, _StartArgs) ->
     print_banner(),
 
     % Configure N2O programmatically to work with both rebar3 and mix
-    application:set_env(n2o, port, 8001),
+    application:set_env(n2o, port, 8082),
     application:set_env(n2o, protocols, [nitro_n2o, n2o_heart]),
     application:set_env(n2o, routes, rtp_routes),
     application:set_env(n2o, mq, rtp_syn),
@@ -18,7 +18,7 @@ start(_StartType, _StartArgs) ->
 
     kvs:join(),
     ok = syn:add_node_to_scopes([rooms, n2o_mq]),
-    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.RTP.WS'}, {port, 8001}]),
+    {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.RTP.WS'},     {port, 8082}]),
     {ok, _} = 'Elixir.Bandit':start_link([{plug, 'Elixir.RTP.Static'}, {port, 8081}]),
     rtp_sup:start_link().
 
@@ -40,7 +40,7 @@ print_banner() ->
     io:format("~n"),
     io:format("╔════════════════════════════════════════════════════════╗~n"),
     io:format("║  ~s: RTP Server / Signaling & Telemetry             ║~n", [Logo]),
-    io:format("║  WS  : ws://localhost:8001/ws/app/<page>.htm           ║~n"),
+    io:format("║  WS  : ws://localhost:8082/ws/app/<page>.htm           ║~n"),
     io:format("║  HTTP: http://localhost:8081/app/login.htm             ║~n"),
     io:format("╚════════════════════════════════════════════════════════╝~n"),
     io:format("  Hardware   : ~p Cores, ~p GB RAM~n", [Cores, MemGB]),

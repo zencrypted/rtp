@@ -83,7 +83,7 @@
         }
 
         // Connect Telemetry WebSocket
-        const signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=broadcast');
+        const signalingWs = new WebSocket('ws://' + window.location.hostname + ':8082/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=broadcast');
         let telemetryPingInterval = null;
 
         signalingWs.onopen = () => {

@@ -55,7 +55,7 @@
 
         function connectSignaling() {
             // Connect to signaling websocket using fallback auth query params
-            signalingWs = new WebSocket('ws://' + window.location.hostname + ':8001/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName));
+            signalingWs = new WebSocket('ws://' + window.location.hostname + ':8082/ws/signaling?room=' + encodeURIComponent(roomName) + '&user=' + encodeURIComponent(userName));
 
             signalingWs.onopen = () => {
                 console.log('Signaling connected — standing by for init');
@@ -133,14 +133,14 @@
                 btnJoin.textContent = '⌛';
 
                 try {
-                    localStream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { width: 640, height: 360, frameRate: 30 }, 
-                        audio: true 
+                    localStream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: 640, height: 360, frameRate: 30 },
+                        audio: true
                     });
                 } catch (e) {
                     console.warn('Webcam acquisition failed, falling back to audio only:', e);
-                    localStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: true 
+                    localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true
                     });
                 }
 
@@ -181,7 +181,6 @@
                     ]
                 };
 
-                
                 pc = new RTCPeerConnection(rtcConfig);
 
                 pc.ontrack = (event) => {

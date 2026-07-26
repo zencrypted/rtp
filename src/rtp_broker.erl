@@ -1,21 +1,20 @@
 -module(rtp_broker).
 -behaviour(gen_server).
 -compile(nowarn_deprecated_catch).
--include_lib("n2o/include/n2o.hrl").
--include_lib("public_key/include/public_key.hrl").
 
 -export([start_link/0, peer_joined/4, sdp_answer/4, ice_candidate/4, peer_left/3, terminate_room/2, recording_path/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {
-    ports = #{},           % RoomId :: binary() -> Port :: port()
-    room_peers = #{},      % RoomId :: binary() -> [PeerId :: binary()]
-    peer_rooms = #{},      % PeerId :: binary() -> RoomId :: binary()
-    room_started_at = #{}, % RoomId :: binary() -> Timestamp :: integer()
-    monitors = #{}         % MonitorRef :: reference() -> {RoomId, PeerId}
-}).
+-include_lib("n2o/include/n2o.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
-%% API Functions
+-record(state, {
+    ports = #{},            % RoomId :: binary() -> Port :: port()
+    room_peers = #{},       % RoomId :: binary() -> [PeerId :: binary()]
+    peer_rooms = #{},       % PeerId :: binary() -> RoomId :: binary()
+    room_started_at = #{},  % RoomId :: binary() -> Timestamp :: integer()
+    monitors = #{}          % MonitorRef :: reference() -> {RoomId, PeerId}
+}).
 
 start_link() ->
     gen_server:start_link(?MODULE, [], []).
@@ -36,14 +35,12 @@ terminate_room(BrokerPid, RoomId) ->
     gen_server:call(BrokerPid, {terminate_room, RoomId}).
 
 recording_path(RoomId) ->
-    Ext = case application:get_env(rtp, hls_format, ts) of
+    FileExt = case application:get_env(rtp, hls_format, ts) of
         fmp4 -> "/recording.mp4";
         mp4 -> "/recording.mp4";
-        _ -> "/index.m3u8"
+        ts -> "/index.m3u8"
     end,
-    "priv/static/rooms/" ++ binary_to_list(RoomId) ++ Ext.
-
-%% gen_server Callbacks
+    "priv/static/rooms/" ++ binary_to_list(RoomId) ++ FileExt.
 
 init([]) ->
     process_flag(trap_exit, true),
@@ -64,10 +61,7 @@ handle_call({peer_joined, RoomId, PeerId, ClientPid}, _From, State) ->
         error ->
             Now = erlang:system_time(millisecond),
             Binary = filename:absname(find_binary()),
-            OutDir = case RoomId of
-                <<"court-room-room123">> -> filename:absname("priv/static/rooms/court-room-room123");
-                _ -> filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId))
-            end,
+            OutDir = filename:absname("priv/static/rooms/" ++ binary_to_list(RoomId)),
             filelib:ensure_dir(OutDir ++ "/"),
             os:cmd("rm -f " ++ OutDir ++ "/*"),
             error_logger:info_msg("Spawning GStreamer mixer for room ~s writing to ~s~n", [RoomId, OutDir]),
@@ -322,7 +316,7 @@ notify_room_info(RoomId, StartedAt, State) ->
     }),
     Msg = {'$msg', kvs:seq([], []), [], [], <<"System">>, RoomInfoMsg},
     n2o:send({topic, binary_to_list(RoomId)}, #client{data = Msg}),
-    
+
     Peers = maps:get(RoomId, State#state.room_peers, []),
     lists:foreach(fun(PeerId) ->
         case syn:lookup(rooms, PeerId) of

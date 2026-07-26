@@ -9,6 +9,7 @@
 #include <string.h>
 #include <signal.h>
 #include <glib-unix.h>
+#include <unistd.h>
 
 #define WIDTH 1920
 #define HEIGHT 1080
@@ -133,6 +134,29 @@ static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx, c
 
 // IO channel callback for stdin signaling
 
+static gboolean shutdown_watchdog(gpointer user_data) {
+    g_printerr("DEBUG: Shutdown watchdog triggered! Force exiting...\n");
+    exit(0);
+    return FALSE;
+}
+
+static void trigger_graceful_shutdown() {
+    static gboolean shutting_down = FALSE;
+    if (shutting_down) return;
+    shutting_down = TRUE;
+    
+    g_printerr("DEBUG: Initiating graceful shutdown (sending EOS)...\n");
+    
+    // Set a POSIX alarm to guarantee the process dies in 3 seconds 
+    // even if GStreamer deadlocks or infinite loops handling the EOS event.
+    alarm(3);
+    
+    if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
+    
+    // Add 3 second watchdog to force exit if EOS hangs (GLib fallback)
+    g_timeout_add_seconds(3, shutdown_watchdog, NULL);
+}
+
 static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer data) {
     gchar *line = NULL;
     gsize length = 0;
@@ -145,8 +169,8 @@ static gboolean on_stdin_message(GIOChannel *source, GIOCondition cond, gpointer
             g_free(line);
         }
     } else if (status == G_IO_STATUS_EOF || status == G_IO_STATUS_ERROR) {
-        g_printerr("DEBUG: stdin EOF or error, sending EOS to pipeline...\n");
-        if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
+        g_printerr("DEBUG: stdin EOF or error...\n");
+        trigger_graceful_shutdown();
         if (error) {
             g_printerr("Error reading stdin: %s\n", error->message);
             g_clear_error(&error);
@@ -686,8 +710,7 @@ static void handle_signaling_message(const gchar *json_str) {
         const gchar *peer_id = json_object_get_string_member(root, "peer_id");
         cleanup_peer(peer_id);
     } else if (g_strcmp0(type, "stop") == 0) {
-        g_printerr("DEBUG: Received stop command, sending EOS...\n");
-        if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
+        trigger_graceful_shutdown();
     }
     g_object_unref(parser);
 }
@@ -696,12 +719,8 @@ static void handle_signaling_message(const gchar *json_str) {
 
 static gboolean on_unix_signal(gpointer user_data) {
     gint sig = GPOINTER_TO_INT(user_data);
-    g_printerr("DEBUG: Caught signal %d, sending EOS...\n", sig);
-    GstElement *mux = gst_bin_get_by_name(GST_BIN(state.pipeline), "mux");
-    if (mux) {
-        gst_element_send_event(mux, gst_event_new_eos());
-        gst_object_unref(mux);
-    }
+    g_printerr("DEBUG: Caught signal %d...\n", sig);
+    trigger_graceful_shutdown();
     return FALSE;
 }
 

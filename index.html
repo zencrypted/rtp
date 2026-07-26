@@ -65,7 +65,7 @@
     of a given room are bound to the same Erlang node via Ingress sticky sessions,
     eliminating inter-node cluster traffic and allowing horizontal scaling as share-nothing pods.</p>
     <figure><code>
-SPA ── TCP:8001 WSS SDP/ICE ──► rtp_signaling
+SPA ── TCP:8082 WSS SDP/ICE ──► rtp_signaling
                                       │
                              rtp_coordinator
                                       │
@@ -75,7 +75,7 @@ SPA ── TCP:8001 WSS SDP/ICE ──► rtp_signaling
                                       │ UNIX pipe stdout SDP/ICE
                              rtp_broker
                                       │ Erlang msg via Syn
-                                 rtp_signaling ── TCP:8001 WSS push ──► SPA
+                                 rtp_signaling ── TCP:8082 WSS push ──► SPA
 
 Browser  ══ UDP dynamic DTLS-SRTP camera ══► priv/gst (MCU)
 priv/gst ══ UDP dynamic DTLS-SRTP composite ══► Browser
@@ -118,7 +118,7 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 │   ├── hls.ex                HTTP Live Streaming handler — strips ETag, no-store
 │   ├── n2o.ex                N2O Bandit WebSocket proxy
 │   ├── static.ex             Plug.Static asset server — port 8081
-│   └── ws.ex                 WebSocket server — port 8001 → rtp_signaling
+│   └── ws.ex                 WebSocket server — port 8082 → rtp_signaling
 └── src/
     ├── rtp.app.src           Erlang/OTP Manifest
     ├── rtp_routes.erl        N2O URL router
@@ -136,10 +136,10 @@ SPA ··► UDP/TCP:3478 STUN/TURN (optional) ··► relay DTLS-SRTP ··► pr
 
   <section>
     <h3>Erlang/OTP Control Plane</h3>
-    <p><b>rtp_app.erl</b> — Application bootstrap. Configures N2O on port 8001,
+    <p><b>rtp_app.erl</b> — Application bootstrap. Configures N2O on port 8082,
     calls <code>kvs:join()</code>, registers
     Syn scopes (<code>rooms</code>, <code>n2o_mq</code>), spawns Bandit listeners
-    (WS:8001, HTTP:8081), and starts <code>rtp_sup</code>. Startup banner reports
+    (WS:8082, HTTP:8081), and starts <code>rtp_sup</code>. Startup banner reports
     <code>MaxRooms = cores × 10</code>, <code>RoomCapacity = 50</code>.</p>
 
     <p><b>rtp_signaling.erl</b> — WebSock handler implementing <code>Elixir.WebSock</code>.
@@ -258,7 +258,7 @@ hevc      x264enc (WebRTC)              opusenc (WebRTC)  hlssink2
     <figure><code>
 Port  Protocol         Purpose
 ──────────────────────────────────────────────────────────────────
-8001  WebSocket/TCP    N2O signaling — SDP/ICE exchange
+8082  WebSocket/TCP    N2O signaling — SDP/ICE exchange
 8081  HTTP/TCP         Plug.Static — priv/static/ assets and HLS
 3478  UDP/TCP          eturnal STUN/TURN — NAT traversal
 5349  UDP/TCP          eturnal TURNS — STUN/TURN over TLS
@@ -295,7 +295,7 @@ cc -O3 c_src/gst.c -o priv/gst \
 iex -S mix</code></figure>
     <figure><code>╔════════════════════════════════════════════════════════╗
 ║  ERP/1: RTP Server / Signaling &amp; Telemetry             ║
-║  WS  : ws://localhost:8001/ws/app/&lt;page&gt;.htm           ║
+║  WS  : ws://localhost:8082/ws/app/&lt;page&gt;.htm           ║
 ║  HTTP: http://localhost:8081/app/login.htm             ║
 ╚════════════════════════════════════════════════════════╝
   Hardware   : 10 Cores, 16 GB RAM

@@ -184,7 +184,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({Port, {data, {eol, LineBin}}}, State) ->
-    case catch jsone:decode(LineBin) of
+    case catch json:decode(LineBin) of
         #{<<"type">> := <<"sdp_offer">>, <<"peer_id">> := PeerId, <<"sdp">> := Sdp} ->
             case syn:lookup(rooms, PeerId) of
                 {Pid, _} -> Pid ! {sdp_offer, Sdp};
@@ -310,12 +310,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Helpers
 
 send_to_port(Port, Map) ->
-    Json = jsone:encode(Map),
+    Json = json:encode(Map),
     port_command(Port, [Json, <<"\n">>]).
 
 notify_room_info(RoomId, StartedAt, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),
-    RoomInfoMsg = jsone:encode(#{
+    RoomInfoMsg = json:encode(#{
         <<"type">> => <<"room_info">>,
         <<"started_at">> => StartedAt,
         <<"hls_format">> => HlsFormat

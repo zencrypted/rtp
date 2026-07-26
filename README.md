@@ -6,7 +6,7 @@
 This repository contains the unified, lightweight RTP monorepo designed for high-performance
 WebRTC video conferencing. It consolidates N2O WebSocket signaling pages, session authentication,
 room process supervisors, Mnesia persistence, and in-process GStreamer compositor port drivers
-into a single cohesive Erlang/OTP application.
+into a single cohesive Erlang/OTP 27+ application.
 
 ## 1. Source Tree Directory Blueprint
 
@@ -274,7 +274,7 @@ open_port({spawn_executable, Binary}, [
 ])
 ```
 
-**Port IPC** (`send_to_port/2`): Encodes Erlang maps as JSON via `jsone:encode/1`
+**Port IPC** (`send_to_port/2`): Encodes Erlang maps as JSON via `json:encode/1`
 and writes to the port with a trailing newline.
 
 **Stdout parsing** (`handle_info({Port, {data, {eol, Line}}}, ...)`): Decodes JSON

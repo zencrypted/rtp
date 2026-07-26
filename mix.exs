@@ -1,11 +1,11 @@
-defmodule Rtp.MixProject do
+defmodule RTP.Mix do
   use Mix.Project
 
   def project do
     [
       app: :rtp,
       description: "ERP/1: GST RTP RTC ICE SDP H.264 AVC H.265 HEVC MP4 MPEG-2 HLS",
-      version: "0.7.25",
+      version: "0.7.26",
       package: package(),
       aliases: aliases(),
       deps: deps()
@@ -31,12 +31,11 @@ defmodule Rtp.MixProject do
 
   def deps do
     [
-      {:bandit, "1.12.0"},
+      {:bandit, "1.12.3"},
       {:websock_adapter, "0.5.9"},
       {:n2o, "10.12.4"},
       {:nitro, "11.4.16"},
       {:kvs, "10.8.3"},
-      {:jsone, "1.7.0"},
       {:syn, "3.4.2"},
       {:ex_doc, ">= 0.0.0", only: [:dev, :test]}
     ]

@@ -30,7 +30,7 @@ handle_in({Msg, Opts} = Frame, State) ->
     Opcode = proplists:get_value(opcode, Opts, text),
     case Opcode of
         text ->
-            Data = jsone:decode(Msg),
+            Data = json:decode(Msg),
             Type = maps:get(<<"type">>, Data, <<>>),
             PeerId = State#state.peer_id,
             case Type of
@@ -48,7 +48,7 @@ handle_in({Msg, Opts} = Frame, State) ->
                     ok;
                 <<"get_peers">> ->
                     Peers = gen_server:call(State#state.room_pid, get_peers),
-                    Payload = jsone:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers}),
+                    Payload = json:encode(#{<<"type">> => <<"peer_list">>, <<"peers">> => Peers}),
                     self() ! {send_payload, Payload};
                 _ ->
                     case Data of
@@ -69,7 +69,7 @@ handle_in(Frame, State) ->
     {ok, State}.
 
 handle_info(send_init_msg, State) ->
-    InitMsg = jsone:encode(#{
+    InitMsg = json:encode(#{
         <<"type">> => <<"init">>,
         <<"peer_id">> => State#state.peer_id
     }),
@@ -77,7 +77,7 @@ handle_info(send_init_msg, State) ->
 
 handle_info({send_room_info, StartedAt}, State) ->
     HlsFormat = application:get_env(rtp, hls_format, fmp4),
-    RoomInfoMsg = jsone:encode(#{
+    RoomInfoMsg = json:encode(#{
         <<"type">> => <<"room_info">>,
         <<"started_at">> => StartedAt,
         <<"hls_format">> => HlsFormat
@@ -85,7 +85,7 @@ handle_info({send_room_info, StartedAt}, State) ->
     {push, {text, RoomInfoMsg}, State};
 
 handle_info({sdp_offer, Sdp}, State) ->
-    Payload = jsone:encode(#{
+    Payload = json:encode(#{
         <<"sdp">> => #{
             <<"type">> => <<"offer">>,
             <<"sdp">> => Sdp
@@ -94,17 +94,17 @@ handle_info({sdp_offer, Sdp}, State) ->
     {push, {text, Payload}, State};
 
 handle_info({ice_candidate, Candidate}, State) ->
-    Payload = jsone:encode(#{
+    Payload = json:encode(#{
         <<"candidate">> => Candidate
     }),
     {push, {text, Payload}, State};
 
 handle_info({peer_joined, PeerId}, State) ->
-    Payload = jsone:encode(#{<<"type">> => <<"peer_joined">>, <<"peer_id">> => PeerId}),
+    Payload = json:encode(#{<<"type">> => <<"peer_joined">>, <<"peer_id">> => PeerId}),
     {push, {text, Payload}, State};
 
 handle_info({peer_left, PeerId}, State) ->
-    Payload = jsone:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
+    Payload = json:encode(#{<<"type">> => <<"peer_left">>, <<"peer_id">> => PeerId}),
     {push, {text, Payload}, State};
 
 handle_info({send_payload, Payload}, State) ->

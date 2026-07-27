@@ -244,6 +244,8 @@ static void on_ice_state_change(GstElement *webrtc, GParamSpec *pspec, gpointer 
                 gst_object_unref(vtee_sink);
             }
         }
+        gst_pipeline_set_latency(GST_PIPELINE(state.pipeline), 350 * GST_MSECOND);
+        gst_bin_recalculate_latency(GST_BIN(state.pipeline));
     }
 }
 
@@ -336,7 +338,7 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *scaler    = gst_element_factory_make("videoscale", NULL);
         GstElement *rate      = gst_element_factory_make("videorate", NULL);
 
-        g_object_set(rate, "drop-only", TRUE, "skip-to-first", TRUE, "average-period", GST_SECOND, NULL);
+        g_object_set(rate, "drop-only", TRUE, "skip-to-first", TRUE, "average-period", GST_SECOND / 2, NULL);
 
         GstElement *capsfilter = gst_element_factory_make("capsfilter", NULL);
         GstCaps *caps30 = gst_caps_from_string("video/x-raw,format=I420,width=960,height=540,framerate=30/1");
@@ -883,6 +885,7 @@ int main(int argc, char *argv[]) {
 
     }
     state.pipeline = gst_parse_launch(pipeline_str, NULL);
+
     g_free(pipeline_str);
 
     if (!state.pipeline) {
@@ -914,6 +917,18 @@ int main(int argc, char *argv[]) {
     state.video_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "vtee");
     state.audio_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "atee");
 
+     g_object_set(state.audiomixer,
+    "ignore-inactive-pads", TRUE,
+    "alignment-threshold", 80 * GST_MSECOND,
+    "discont-wait", 2 * GST_SECOND,
+    // "output-buffer-duration", 20 * GST_MSECOND,  // only if the property exists on your version
+    NULL);
+
+    g_object_set(state.compositor,
+    "ignore-inactive-pads", TRUE,
+    "min-upstream-latency", (guint64)0,
+    NULL);
+
     if (state.video_tee) g_object_set(state.video_tee, "allow-not-linked", TRUE, NULL);
     if (state.audio_tee) g_object_set(state.audio_tee, "allow-not-linked", TRUE, NULL);
 
@@ -921,7 +936,14 @@ int main(int argc, char *argv[]) {
     if (h264_tee) { g_object_set(h264_tee, "allow-not-linked", TRUE, NULL); gst_object_unref(h264_tee); }
     GstElement *raw_atee = gst_bin_get_by_name(GST_BIN(state.pipeline), "raw_atee");
     if (raw_atee) { g_object_set(raw_atee, "allow-not-linked", TRUE, NULL); gst_object_unref(raw_atee); }
-    gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
+
+    GstStateChangeReturn ret = gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
+    if (ret == GST_STATE_CHANGE_ASYNC) {
+        gst_element_get_state(state.pipeline, NULL, NULL, GST_CLOCK_TIME_NONE);
+    }
+
+    gst_pipeline_set_latency(GST_PIPELINE(state.pipeline), 350 * GST_MSECOND);
+    gst_bin_recalculate_latency(GST_BIN(state.pipeline));
 
     // Send a message to Erlang that the recording pipeline is playing
     g_printerr("{\"type\": \"recording_started\"}\n");

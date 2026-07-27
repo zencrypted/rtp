@@ -15,8 +15,6 @@
 #define WIDTH 1920
 #define HEIGHT 1080
 
-//Part 1: Structs & Helpers
-
 typedef struct {
     gchar *candidate;
     guint mline_idx;
@@ -171,10 +169,6 @@ static void add_remote_ice_candidate_impl(GstElement *webrtc, guint mline_idx, c
     }
 }
 
-// Part 2: Signaling & Core Callbacks
-
-// IO channel callback for stdin signaling
-
 static gboolean shutdown_watchdog(gpointer user_data) {
     g_printerr("DEBUG: Shutdown watchdog triggered! Force exiting...\n");
     exit(0);
@@ -185,15 +179,15 @@ static void trigger_graceful_shutdown() {
     static gboolean shutting_down = FALSE;
     if (shutting_down) return;
     shutting_down = TRUE;
-    
+
     g_printerr("DEBUG: Initiating graceful shutdown (sending EOS)...\n");
-    
-    // Set a POSIX alarm to guarantee the process dies in 3 seconds 
+
+    // Set a POSIX alarm to guarantee the process dies in 3 seconds
     // even if GStreamer deadlocks or infinite loops handling the EOS event.
     alarm(3);
-    
+
     if (state.pipeline) gst_element_send_event(state.pipeline, gst_event_new_eos());
-    
+
     // Add 3 second watchdog to force exit if EOS hangs (GLib fallback)
     g_timeout_add_seconds(3, shutdown_watchdog, NULL);
 }
@@ -313,8 +307,7 @@ static void on_ice_candidate(GstElement *webrtc, guint mline_idx, gchar *candida
     if (fixed) g_free(fixed);
 }
 
-// ==================== LOW LATENCY INGEST ====================
-
+// ingest
 static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_data) {
     PeerInfo *peer = (PeerInfo *)user_data;
     GstCaps *caps = gst_pad_get_current_caps(pad);
@@ -346,9 +339,6 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gst_caps_unref(caps30);
 
         GstElement *jitter = gst_element_factory_make("queue", NULL);
-
-        // Memory Optimization: Use a 500ms Video Queue, non-leaky thread boundary queue
-        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
 
         g_object_set(jitter, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)500000000, NULL);
 
@@ -402,9 +392,6 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         GstElement *resampler = gst_element_factory_make("audioresample", NULL);
         GstElement *jitter = gst_element_factory_make("queue", NULL);
 
-        // Memory Optimization: Use a small 250ms Audio Queue, non-leaky thread boundary queue
-        // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
-
         g_object_set(jitter, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)500000000, NULL);
 
         peer->a_convert = converter;
@@ -456,8 +443,6 @@ static void on_incoming_pad(GstElement *webrtc, GstPad *pad, gpointer user_data)
     g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decoded_pad), peer);
 }
 
-// Setup Peer called on each new Participant
-
 static void setup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Setting up peer: %s\n", peer_id);
 
@@ -475,7 +460,6 @@ static void setup_peer(const gchar *peer_id) {
     // - 100ms  : Balanced default. Suitable for typical broadband and TURN relay.
     // - 200ms+ : High latency. Recommended for 3G/Mobile networks with high packet jitter.
     // This configures the internal rtpjitterbuffer which buffers compressed packets efficiently.
-
     g_object_set(webrtc,
         "latency", global_config.latency,
         "bundle-policy", global_config.bundle_policy,
@@ -485,7 +469,6 @@ static void setup_peer(const gchar *peer_id) {
 
     // NOTE: "stun-server" and "turn-server" webrtcbin pad parameters need to be initialized under WSL2
     // TODO: pem-certificate/pem-key removed (not supported in GStreamer 1.20.x on Ubuntu 22.04 properly)
-
     PeerInfo *peer = g_new0(PeerInfo, 1);
     peer->peer_id = g_strdup(peer_id);
     peer->webrtc = webrtc;
@@ -505,7 +488,6 @@ static void setup_peer(const gchar *peer_id) {
     if (peer->grid_idx == -1) peer->grid_idx = 0;
 
     // Setup sizes of A/V Intermediary Queues
-
     peer->v_queue = gst_element_factory_make("queue", NULL);
     peer->a_queue = gst_element_factory_make("queue", NULL);
 
@@ -552,15 +534,12 @@ static void setup_peer(const gchar *peer_id) {
     g_signal_emit_by_name(webrtc, "create-offer", NULL, promise);
 }
 
-// Cleanup Peer
-
 static void cleanup_peer(const gchar *peer_id) {
     g_printerr("DEBUG: Cleaning up peer: %s\n", peer_id);
     PeerInfo *peer = g_hash_table_lookup(state.webrtcbins, peer_id);
     if (!peer) return;
 
     // Release compositor and jitter queue
-
     if (peer->comp_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->comp_pad);
         if (peer_pad) {
@@ -596,7 +575,6 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release audiomixer pad, remove dynamic audio resampler, converter and decodebin
-
     if (peer->amix_pad) {
         GstPad *peer_pad = gst_pad_get_peer(peer->amix_pad);
         if (peer_pad) {
@@ -624,7 +602,6 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release video tee src pad, remove v_queue
-
     if (peer->v_queue) {
         GstPad *sink = gst_element_get_static_pad(peer->v_queue, "sink");
         if (sink) {
@@ -641,7 +618,6 @@ static void cleanup_peer(const gchar *peer_id) {
     }
 
     // Disconnect and release audio tee src pad, remove a_queue
-
     if (peer->a_queue) {
         GstPad *sink = gst_element_get_static_pad(peer->a_queue, "sink");
         if (sink) {
@@ -671,7 +647,6 @@ static void cleanup_peer(const gchar *peer_id) {
 static void handle_signaling_message(const gchar *json_str) {
 
     // Erlang Port Text Protocol (JSON)
-
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, json_str, -1, NULL)) {
         g_object_unref(parser); return;
@@ -786,8 +761,6 @@ static void handle_signaling_message(const gchar *json_str) {
     g_object_unref(parser);
 }
 
-// ==================== SIGNAL & BUS HANDLERS ====================
-
 static gboolean on_unix_signal(gpointer user_data) {
     gint sig = GPOINTER_TO_INT(user_data);
     g_printerr("DEBUG: Caught signal %d...\n", sig);
@@ -797,6 +770,20 @@ static gboolean on_unix_signal(gpointer user_data) {
 
 static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) {
     switch (GST_MESSAGE_TYPE(message)) {
+        case GST_MESSAGE_NEW_CLOCK: {
+            GstClock *clock = NULL;
+            gst_message_parse_new_clock(message, &clock);
+            g_printerr("DEBUG: NEW_CLOCK %s\n", clock ? GST_OBJECT_NAME(clock) : "(null)");
+            break; }
+        case GST_MESSAGE_CLOCK_LOST:
+            g_printerr("DEBUG: CLOCK_LOST — restarting pipeline state\n");
+            gst_element_set_state(state.pipeline, GST_STATE_PAUSED);
+            gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
+            break;
+        case GST_MESSAGE_LATENCY:
+            gst_pipeline_set_latency(GST_PIPELINE(state.pipeline), 350 * GST_MSECOND);
+            gst_bin_recalculate_latency(GST_BIN(state.pipeline));
+            break;
         case GST_MESSAGE_EOS:
             g_printerr("DEBUG: Received EOS, exiting...\n");
             g_main_loop_quit(state.loop);
@@ -901,7 +888,7 @@ int main(int argc, char *argv[]) {
     gst_bus_add_watch(bus, on_bus_message, NULL);
     gst_object_unref(bus);
 
-    g_unix_signal_add(SIGINT, on_unix_signal, GINT_TO_POINTER(SIGINT));
+    g_unix_signal_add(SIGINT,  on_unix_signal, GINT_TO_POINTER(SIGINT));
     g_unix_signal_add(SIGTERM, on_unix_signal, GINT_TO_POINTER(SIGTERM));
 
     state.compositor = gst_bin_get_by_name(GST_BIN(state.pipeline), "mix");
@@ -914,34 +901,25 @@ int main(int argc, char *argv[]) {
         g_object_set(state.compositor, "ignore-inactive-pads", TRUE, "min-upstream-latency", 0, NULL);
     }
     state.audiomixer = gst_bin_get_by_name(GST_BIN(state.pipeline), "amix");
-    state.video_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "vtee");
-    state.audio_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "atee");
+    state.video_tee  = gst_bin_get_by_name(GST_BIN(state.pipeline), "vtee");
+    state.audio_tee  = gst_bin_get_by_name(GST_BIN(state.pipeline), "atee");
 
-     g_object_set(state.audiomixer,
-    "ignore-inactive-pads", TRUE,
-    "alignment-threshold", 80 * GST_MSECOND,
-    "discont-wait", 2 * GST_SECOND,
-    // "output-buffer-duration", 20 * GST_MSECOND,  // only if the property exists on your version
-    NULL);
-
-    g_object_set(state.compositor,
-    "ignore-inactive-pads", TRUE,
-    "min-upstream-latency", (guint64)0,
+    g_object_set(state.audiomixer,
+       "ignore-inactive-pads", TRUE,
+       "alignment-threshold", 80 * GST_MSECOND,
+       "discont-wait", 2 * GST_SECOND,
+       // "output-buffer-duration", 20 * GST_MSECOND,  // only if the property exists on your version
     NULL);
 
     if (state.video_tee) g_object_set(state.video_tee, "allow-not-linked", TRUE, NULL);
     if (state.audio_tee) g_object_set(state.audio_tee, "allow-not-linked", TRUE, NULL);
-
     GstElement *h264_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "h264_tee");
     if (h264_tee) { g_object_set(h264_tee, "allow-not-linked", TRUE, NULL); gst_object_unref(h264_tee); }
     GstElement *raw_atee = gst_bin_get_by_name(GST_BIN(state.pipeline), "raw_atee");
     if (raw_atee) { g_object_set(raw_atee, "allow-not-linked", TRUE, NULL); gst_object_unref(raw_atee); }
 
     GstStateChangeReturn ret = gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
-    if (ret == GST_STATE_CHANGE_ASYNC) {
-        gst_element_get_state(state.pipeline, NULL, NULL, GST_CLOCK_TIME_NONE);
-    }
-
+    if (ret == GST_STATE_CHANGE_ASYNC) { gst_element_get_state(state.pipeline, NULL, NULL, GST_CLOCK_TIME_NONE); }
     gst_pipeline_set_latency(GST_PIPELINE(state.pipeline), 350 * GST_MSECOND);
     gst_bin_recalculate_latency(GST_BIN(state.pipeline));
 
@@ -949,7 +927,6 @@ int main(int argc, char *argv[]) {
     g_printerr("{\"type\": \"recording_started\"}\n");
 
     // Setup stdin signaling channel reader via GLib IO channels
-
     GIOChannel *stdin_chan = g_io_channel_unix_new(0); // 0 = stdin
     g_io_add_watch(stdin_chan, G_IO_IN | G_IO_PRI, on_stdin_message, NULL);
     g_io_channel_unref(stdin_chan);

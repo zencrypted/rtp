@@ -330,13 +330,13 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         gint w = WIDTH / 2, h = HEIGHT / 2;
         gint x = (idx % 2) * w, y = (idx / 2) * h;
 
-        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
-                     "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
+        g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h, "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
 
         GstElement *converter = gst_element_factory_make("videoconvert", NULL);
         GstElement *scaler    = gst_element_factory_make("videoscale", NULL);
         GstElement *rate      = gst_element_factory_make("videorate", NULL);
-        g_object_set(rate, "drop-only", FALSE, "skip-to-first", TRUE, NULL);
+
+        g_object_set(rate, "drop-only", TRUE, "skip-to-first", TRUE, "average-period", GST_SECOND, NULL);
 
         GstElement *capsfilter = gst_element_factory_make("capsfilter", NULL);
         GstCaps *caps30 = gst_caps_from_string("video/x-raw,format=I420,width=960,height=540,framerate=30/1");
@@ -345,15 +345,10 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
 
         GstElement *jitter = gst_element_factory_make("queue", NULL);
 
-        // Memory Optimization: Use a small 200ms Video Queue, non-leaky thread boundary queue
+        // Memory Optimization: Use a 500ms Video Queue, non-leaky thread boundary queue
         // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
 
-        g_object_set(jitter,
-            "leaky", 2,
-            "max-size-buffers", 0,
-            "max-size-bytes", 0,
-            "max-size-time", (guint64)500000000,
-            NULL);
+        g_object_set(jitter, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)500000000, NULL);
 
         peer->v_convert = converter;
         peer->v_scale   = scaler;
@@ -408,12 +403,7 @@ static void on_decoded_pad(GstElement *decodebin, GstPad *pad, gpointer user_dat
         // Memory Optimization: Use a small 250ms Audio Queue, non-leaky thread boundary queue
         // relying on webrtcbin's internal rtpjitterbuffer for packet jitter.
 
-        g_object_set(jitter,
-            "leaky", 2,
-            "max-size-buffers", 0,
-            "max-size-bytes", 0,
-            "max-size-time", (guint64)500000000,
-            NULL);
+        g_object_set(jitter, "leaky", 2, "max-size-buffers", 0, "max-size-bytes", 0, "max-size-time", (guint64)500000000, NULL);
 
         peer->a_convert = converter;
         peer->a_resample = resampler;
@@ -918,6 +908,7 @@ int main(int argc, char *argv[]) {
             g_object_set(bg_pad, "zorder", (guint) 1, NULL);
             gst_object_unref(bg_pad);
         }
+        g_object_set(state.compositor, "ignore-inactive-pads", TRUE, "min-upstream-latency", 0, NULL);
     }
     state.audiomixer = gst_bin_get_by_name(GST_BIN(state.pipeline), "amix");
     state.video_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "vtee");
@@ -927,16 +918,9 @@ int main(int argc, char *argv[]) {
     if (state.audio_tee) g_object_set(state.audio_tee, "allow-not-linked", TRUE, NULL);
 
     GstElement *h264_tee = gst_bin_get_by_name(GST_BIN(state.pipeline), "h264_tee");
-    if (h264_tee) {
-        g_object_set(h264_tee, "allow-not-linked", TRUE, NULL);
-        gst_object_unref(h264_tee);
-    }
+    if (h264_tee) { g_object_set(h264_tee, "allow-not-linked", TRUE, NULL); gst_object_unref(h264_tee); }
     GstElement *raw_atee = gst_bin_get_by_name(GST_BIN(state.pipeline), "raw_atee");
-    if (raw_atee) {
-        g_object_set(raw_atee, "allow-not-linked", TRUE, NULL);
-        gst_object_unref(raw_atee);
-    }
-
+    if (raw_atee) { g_object_set(raw_atee, "allow-not-linked", TRUE, NULL); gst_object_unref(raw_atee); }
     gst_element_set_state(state.pipeline, GST_STATE_PLAYING);
 
     // Send a message to Erlang that the recording pipeline is playing

@@ -49,3 +49,26 @@ The crux of real-time multimedia stability lies in the deterministic reconciliat
 - **Thread Topology:** Enforce strict CPU affinity and thread pinning to mitigate context-switching overhead in the OS scheduler.
 
 - **Jitterbuffer Tuning:** Dynamically adjust the `webrtcbin` internal RTP jitterbuffer latency based on measured network variance, minimizing baseline delay for optimal LAN environments while preserving stability on degraded WAN links.
+
+### Q: How can we debug RTP session state, network jitter, and clock skew (`rtpsend` / `rtprecv`)?
+
+**A:** If your pipeline utilizes the modern Rust RTP plugin (`rsrtp`), you can enable debug logs for the RTP session managers by setting `GST_DEBUG=rtpsend:5,rtprecv:5`. This exposes the core RTP/RTCP session layer (distinct from SRTP encryption).
+
+- **Jitter and Latency (`rtprecv`)**: Trace if network jitter causes incoming packets to arrive too late and drop, or track how out-of-order packets are reordered in the jitterbuffer.
+
+`rtprecv` handles incoming packet buffering (controlled by its latency property). By debugging it, you can see if network jitter is causing packets to arrive too late and get dropped, or if packets are arriving out of order and being successfully reordered before decoding.
+
+- **Clock Skew & Synchronization (`rtprecv`)**: Monitor the skew calculation between the remote sender's clock and the local system clock (`timestamping-mode=skew`). This is invaluable for debugging A/V sync drift over time. 
+
+`rtprecv` is responsible for calculating the skew between the remote sender's clock and your local system clock (timestamping-mode=skew). Debugging this allows you to see exactly how it maps RTP timestamps to your local presentation time, which is invaluable if you are experiencing A/V sync drift over time.
+
+- **RTCP Quality Feedback**: Debug the generation of Sender Reports (SR) in `rtpsend` and Receiver Reports (RR) in `rtprecv`. If using the `avpf` profile, you can trace NACKs (retransmission requests) or PLIs (keyframe requests) triggered by packet loss.
+Both elements manage the control protocol (RTCP).
+
+* `rtpsend`: You can debug the generation of Sender Reports (SR), seeing exactly what packet counts, octet counts, and NTP timestamps it is broadcasting to the peer.
+
+* `rtprecv`: You can debug the reception of Receiver Reports (RR). If you are using the avpf profile (rtp-profile=avpf), you can trace the generation of NACKs (asking for a retransmission) or PLIs (asking for a keyframe) when the network drops packets.
+
+- **Sequence Number Tracking**: Explicitly trace the flow of RTP sequence numbers to identify exactly which packets were lost in transit and never recovered, directly correlating network health with pipeline starvation.
+
+You can trace the exact flow of RTP sequence numbers. If the stream is stuttering, rtprecv logs will explicitly tell you which sequence numbers were lost in transit and never recovered.

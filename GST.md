@@ -1,7 +1,7 @@
 # GStreamer WebRTC MCU Media Compositor
 
 This document provides a specification of the GStreamer-based Multipoint Control Unit (MCU)
-implemented in `c_src/gst.c` in 555 LOC. It defines the pipeline architecture, data structures,
+implemented in `c_src/gst.c` in 1K LOC. It defines the pipeline architecture, data structures,
 dynamic peer lifecycle, inter-process communication protocol, output multiplexing strategies,
 and architectural invariants of the production C99 compositor binary `priv/gst`.
 

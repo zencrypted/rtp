@@ -40,10 +40,11 @@ flowchart TD
     subgraph Ingest ["Low-Latency Ingest"]
         WB --> DB[decodebin]
         DB --> VC[videoconvert]
-        VC --> JQ[v_jitter queue max-buffers=3]
+        VC --> VR[videoscale+rate+caps]
+        VR --> JQ[v_jitter queue leaky 500ms]
         JQ --> COMP[compositor Grid]
         DB --> AC[audioconvert]
-        AC --> AJQ[a_jitter queue max-buffers=3]
+        AC --> AJQ[a_jitter queue leaky 500ms]
         AJQ --> AMIX[audiomixer]
     end
     subgraph Mixer ["Central Mixer"]
@@ -86,12 +87,15 @@ flowchart TD
         PAD -->|video pad   sink| VC
         PAD -->|audio pad   sink| AC
         subgraph VideoIngest [Video Ingest]
-            VC[videoconvert] -->|src   sink| JQ[v_jitter queue<br>max-buffers=3]
+            VC[videoconvert] -->|src   sink| VS[videoscale]
+            VS -->|src   sink| VR[videorate]
+            VR -->|src   sink| VCAPS[capsfilter<br>30/1 I420]
+            VCAPS -->|src   sink| JQ[v_jitter queue<br>leaky 500ms]
             JQ -->|src| COMP_SINK[compositor.sink_%u<br>Grid Position]
         end
         subgraph AudioIngest [Audio Ingest]
             AC[audioconvert] -->|src   sink| AR[audioresample]
-            AR -->|src   sink| AJQ[a_jitter queue<br>max-buffers=3]
+            AR -->|src   sink| AJQ[a_jitter queue<br>leaky 500ms]
             AJQ -->|src| AMIX_SINK[audiomixer.sink_%u]
         end
     end
@@ -147,10 +151,18 @@ typedef struct {
     GstPad     *amix_pad;     // Requested audiomixer sink pad (retained for cleanup)
     GstElement *v_decodebin;  // Dynamically attached video decodebin
     GstElement *a_decodebin;  // Dynamically attached audio decodebin
-    GstElement *v_convert;    // videoconvert inserted between decodebin and compositor
+    GstElement *v_convert;    // videoconvert inserted between decodebin and scaler
+    GstElement *v_scale;      // videoscale for predictable output dimensions
+    GstElement *v_rate;       // videorate for duplicating missing frames
+    GstElement *v_caps;       // capsfilter enforcing I420 and 30fps
+    GstElement *v_jitter;     // leaky 500ms queue acting as an asynchronous thread boundary
     GstElement *a_convert;    // audioconvert inserted before audioresample
-    GstElement *a_resample;   // audioresample normalizing sample rate to 48 kHz
+    GstElement *a_resample;   // audioresample normalizing sample rate
+    GstElement *a_jitter;     // leaky 500ms audio jitter queue
     gint        grid_idx;     // Grid slot index [0..15] controlling spatial position
+    gboolean    remote_desc_set; // Flag tracking if SDP answer was applied
+    gboolean    bundled;      // Flag indicating bundled RTCP
+    GArray     *pending_ice_candidates; // ICE candidates awaiting SDP resolution
 } PeerInfo;
 ```
 

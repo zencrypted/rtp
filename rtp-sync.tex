@@ -1,0 +1,200 @@
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{helvet}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage[english, ukrainian]{babel}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\definecolor{nato}{HTML}{293757}
+\definecolor{footergray}{gray}{0.65}
+
+\geometry{a4paper,left=3cm,right=3cm,top=3cm,bottom=3cm}
+\renewcommand{\familydefault}{\sfdefault}
+\setcounter{secnumdepth}{3}
+
+\DeclareFontFamily{T2A}{phv}{}
+\DeclareFontShape{T2A}{phv}{m}{n}{<->ssub * cmss/m/n}{}
+\DeclareFontShape{T2A}{phv}{bx}{n}{<->ssub * cmss/bx/n}{}
+\DeclareFontShape{T2A}{phv}{m}{it}{<->ssub * cmss/m/it}{}
+\DeclareFontShape{T2A}{phv}{bx}{it}{<->ssub * cmss/bx/it}{}
+
+\titleformat{\section} {\color{nato}\Huge\bfseries}{\thesection.}{1em}{}
+\titlespacing*{\section}{0pt}{30pt}{12pt}
+\titleformat{\subsection} {\color{nato}\LARGE\bfseries}{\thesubsection.}{1em}{}
+\titlespacing*{\subsection}{0pt}{20pt}{8pt}
+\titleformat{\subsubsection} {\color{nato}\Large\bfseries}{\thesubsubsection.}{1em}{}
+\titlespacing*{\subsubsection}{0pt}{10pt}{6pt}
+
+\fancyhf{}
+\fancyhead[R]{\small\color{footergray} 27 червня 2026}
+\fancyfoot[L]{\small\color{footergray} ERP/1. Модуль Конференцзв'язок}
+\fancyfoot[R]{\small\color{footergray}\thepage}
+
+\newcommand\HUGE[1]{\fontsize{40}{40}\selectfont #1}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\footrule}{\color{footergray}\hrule width \textwidth height 0.4pt}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
+
+\let\originalfootnotesize\footnotesize
+\let\oldverbatim\verbatim
+\let\oldendverbatim\endverbatim
+\renewenvironment{verbatim}{\originalfootnotesize\oldverbatim}{\oldendverbatim}
+
+\title{Deterministic Real-Time Multimedia Synchronization: Architecting Low Latency Topologies in GStreamer and WebRTC}
+\author{Namdak Tonpa, Zen Crypted}
+\date{\today}
+
+\begin{document}
+
+\begin{titlepage}
+  \AddToShipoutPictureBG*{\AtPageLowerLeft{\color{nato}\rule{\paperwidth}{\paperheight}}}
+  \color{white}\thispagestyle{empty}\vspace*{3cm}\centering
+  {\Huge  \textbf{SYNRC: OpenWebRTC} \par} \vspace{1.5cm}
+  {\HUGE  \textbf{Технічне завдання} \par} \vspace{1.5cm}
+  {\LARGE \textbf{для реалізації механізму синхронізації медіа потоків
+                  з низьколатентними вимогами реального часу
+                  і синхронізацією кадрів через головний тактовий генератор мікшера
+                  } \par} \vspace{1.5cm}
+  {\large На основі Технічних Вимог \par}
+  {\large Згідно з Постановою КМУ № 205 від 21.02.2025 \par}
+  {\large Формалізованих за стандартом ISO/IEC/IEEE 29148:2018 \par}
+  \vfill
+  {\large 2026 \copyright\ Криптографічні Телесистеми \par}
+\end{titlepage}
+
+\newpage
+\maketitle
+
+\begin{abstract}
+Achieving ultra-low latency and stable real-time multimedia transmission in heterogeneous
+environments requires rigorous architectural precision. The primary challenge lies in the
+deterministic reconciliation of conflicting asynchronous domains: non-blocking WebRTC transmission,
+unpredictable I/O operations (e.g., disk recording), and strict isochronous rendering (compositing).
+This article presents an engineering framework for resolving pipeline starvation, timestamp dilation,
+and latency accumulation by enforcing strict thread isolation, temporal queueing, and monotonic clock
+synchronization within GStreamer and WebRTC topologies.
+\end{abstract}
+
+\lefthyphenmin=1
+\hyphenpenalty=100
+\tolerance=6000
+
+\tableofcontents
+
+\newpage
+\section{Introduction}
+
+The crux of real-time multimedia stability is the maintenance of a continuous, synchronized data flow
+across diverse subsystems. Naive topological designs often tightly couple sinks and processing elements
+within the same synchronous state space. Consequently, when unpredictable elements—such as a \texttt{filesink}
+or \texttt{hlssink2}—encounter blocking I/O, backpressure propagates upstream. If an isochronous compositor
+and a WebRTC sink share this state space, the compositor blocks, stalling the overarching temporal
+reference. Failure to isolate these domains dictates a departure from real-time execution, leading to
+catastrophic latency accumulation.
+
+\section{Media Sync Architecture}
+
+\subsection{Asynchronous Domain Isolation}
+
+\subsubsection{Thread Topology and I/O Decoupling}
+
+In GStreamer, queues define asynchronous thread boundaries. By default, data flow and state changes
+execute synchronously. If a downstream element stalls, it halts the thread of upstream elements.
+To guarantee localized I/O blocking or CPU spikes do not propagate backpressure, architectures
+must aggressively inject queues prior to encoders, sinks, and test sources.
+
+This decoupling isolates components into independent OS threads, ensuring the master clock and
+compositor remain untethered. Furthermore, non-blocking state changes (\texttt{async=false}, \texttt{sync=false})
+must be enforced on I/O-bound sinks.
+
+\subsubsection{Temporal Queuing and Absolute Drop Policies}
+
+Default queue implementations impose arbitrary limits on buffer counts and bytes, which are semantically
+poor metrics for real-time video where frame sizes fluctuate. To enforce an absolute zero-latency
+drop policy, queues must be strictly temporal.
+
+By setting explicit temporal boundaries (\texttt{max-size-time=300000000}, \texttt{max-size-buffers=0}, \texttt{max-size-bytes=0})
+coupled with a \texttt{leaky=downstream} policy, the queue is restricted to holding precisely 300 milliseconds
+of actual A/V time. If processing latency exceeds this threshold, older frames are instantaneously
+jettisoned. Trading recording fidelity for live stream continuity is a non-negotiable axiom of real-time design.
+
+For base generators (\texttt{videotestsrc}, \texttt{audiotestsrc}), which produce deterministic, constant-rate data,
+micro-queues (\texttt{max-size-buffers=1} for video, \texttt{max-size-buffers=5} for audio) provide sufficient
+asynchronous decoupling without semantic delay, rendering the generators immune to downstream transients.
+
+\subsection{Synchronization and Temporal Monotonicity}
+
+\subsubsection{Mitigating Timestamp Dilation}
+
+Timestamp dilation—perceived as a "slow motion" effect in WebRTC playback—is a classic desynchronization anomaly.
+It occurs when a processing pipeline (e.g., a compositor) is constrained by CPU saturation and fails to generate
+frames at its targeted framerate. If downstream filters enforce a strict high framerate (e.g., \texttt{30/1}),
+the compositor continues assigning timestamps based on the theoretical rate. Consequently, one real-time
+second of processing may only yield 0.5 seconds of pipeline time, a discrepancy the WebRTC receiver faithfully obeys.
+
+To mathematically guarantee A/V synchronization, the requested framerate must be explicitly lowered
+(e.g., \texttt{framerate=15/1}) to align with the hardware's guaranteed processing capacity. This ensures
+that generated frames are stamped accurately (0ms, 66ms, 133ms...), spanning exactly 1.0 real-time
+second, immediately eradicating the slow-motion defect.
+
+\subsubsection{Isochronous Interpolation for Variable Ingress}
+
+WebRTC clients dynamically throttle their egress framerates based on network congestion. Conversely,
+a compositor demands a constant, unwavering stream of frames. If a client's framerate drops,
+the compositor starves, blocking the pipeline.
+
+
+This impedance mismatch is resolved by injecting a \texttt{videorate} element coupled with a strict \texttt{capsfilter}
+immediately post-decode. \texttt{videorate} acts as an interpolation buffer, deterministically duplicating frames
+to satisfy the compositor's isochronous requirements without inducing latency.
+
+\subsection{Hardware and Resource Constraints Optimization}
+
+Scaling software-based encoding and high-resolution compositing requires specific architectural
+adaptations on resource-constrained hardware (e.g., legacy x86, ARM platforms):
+
+\begin{enumerate}
+\item \textbf{Hardware Acceleration}: Offloading DSP tasks to dedicated ASICs (e.g., \texttt{v4l2h264enc}, QuickSync, NVENC is critical for predictable latency.
+\item \textbf{Spatial Subsampling}: Reducing the compositor canvas resolution exponentially decreases memory bandwidth and CPU cycles.
+\item \textbf{Thread Topology Management}: Enforcing strict CPU affinity and thread pinning mitigates context-switching overhead in the OS scheduler.
+\item \textbf{Jitterbuffer Tuning}: Dynamically adjusting the \texttt{webrtcbin} internal RTP jitterbuffer latency based on measured network variance minimizes baseline delay in LAN environments while preserving stability on degraded WAN links.
+\end{enumerate}
+
+\subsection{Telemetry and Diagnostics in the RTP/RTCP Layer}
+
+Deep visibility into the RTP/RTCP session layer is paramount for maintaining stability. Utilizing the modern Rust RTP plugin (\texttt{rsrtp}), session state, network jitter, and clock skew can be profiled.
+
+\begin{enumerate}
+\item \textbf{Jitter and Latency}: Tracing incoming packet buffering evaluates if network jitter causes late arrivals to drop or monitors how out-of-order packets are reordered. Sequence number tracking explicitly identifies lost packets, correlating network health with pipeline starvation.
+\item \textbf{Clock Skew \& Synchronization}: Monitoring the skew calculation between the remote sender's clock and the local system clock (\texttt{timestamping-mode=skew}) maps RTP timestamps to local presentation time, isolating A/V sync drift.
+\item \textbf{RTCP Quality Feedback}: Generating Sender Reports (SR) in \texttt{rtpsend} broadcasts packet counts and NTP timestamps. \texttt{rtprecv} handles Receiver Reports (RR), tracing NACKs (retransmission requests) or PLIs (keyframe requests) triggered by packet loss when operating under the \texttt{avpf} profile.
+\end{enumerate}
+
+\section{Conclusion}
+
+Architecting stable, ultra-low latency WebRTC and GStreamer pipelines mandates a shift from synchronous,
+tightly-coupled topologies to asynchronous, time-bounded, and heavily isolated designs. By enforcing
+strict thread boundaries, temporal queue policies, and monotonic timestamping, systems can achieve
+deterministic performance even under volatile network and I/O conditions.
+
+\end{document}

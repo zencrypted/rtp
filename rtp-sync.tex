@@ -8,7 +8,7 @@
 \usepackage{fancyhdr}
 \usepackage{parskip}
 \usepackage{microtype}
-\usepackage[english, ukrainian]{babel}
+\usepackage[english,ukrainian]{babel}
 \usepackage{url}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -162,7 +162,6 @@ second, immediately eradicating the slow-motion defect.
 WebRTC clients dynamically throttle their egress framerates based on network congestion. Conversely,
 a compositor demands a constant, unwavering stream of frames. If a client's framerate drops,
 the compositor starves, blocking the pipeline.
-
 
 This impedance mismatch is resolved by injecting a \texttt{videorate} element coupled with a strict \texttt{capsfilter}
 immediately post-decode. \texttt{videorate} acts as an interpolation buffer, deterministically duplicating frames

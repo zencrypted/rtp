@@ -201,22 +201,22 @@ The persistent portion of the pipeline is constructed once at startup via
 videotestsrc pattern=black is-live=true do-timestamp=true !
 timeoverlay valignment=bottom halignment=left font-desc=\"Sans, 48\" !
 video/x-raw,width=1920,height=1080,framerate=15/1 ! queue max-size-buffers=1 leaky=downstream !
-mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 ! queue max-size-buffers=5 leaky=downstream !
+mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 !
+queue max-size-buffers=5 leaky=downstream !
 amix.sink_0 compositor name=mix ignore-inactive-pads=true ! videoconvert !
 video/x-raw,format=I420,width=1920,height=1080,framerate=15/1 !
 queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
 x264enc bitrate=2000 speed-preset=ultrafast key-int-max=15 tune=zerolatency !
-video/x-h264,profile=baseline ! h264parse !
-tee name=h264_tee h264_tee. ! queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
-rtph264pay config-interval=1 pt=96 !
-tee name=vtee audiomixer name=amix ignore-inactive-pads=true !
-audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 !
-tee name=raw_atee raw_atee. ! queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
-opusenc ! rtpopuspay pt=111 !
-tee name=atee h264_tee. !
-queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! hlssink2.video raw_atee. !
-queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true ! audioconvert ! audioresample !
-audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse !
+video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee h264_tee. !
+queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
+rtph264pay config-interval=1 pt=96 ! tee name=vtee audiomixer name=amix ignore-inactive-pads=true !
+audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee raw_atee. !
+queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
+opusenc ! rtpopuspay pt=111 ! tee name=atee h264_tee. !
+queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true !
+hlssink2.video raw_atee. !
+queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true !
+audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse !
 hlssink2.audio hlssink2 name=hlssink2 async-handling=true location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts
 playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10
 ```

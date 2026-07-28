@@ -1,4 +1,4 @@
-# Real-Time Traffic Stability Knowledge Base: GStreamer & WebRTC
+# Real-Time Traffic Stability: GStreamer & WebRTC
 
 This document serves as an expertise knowledge base addressing the fundamental obstacles to achieving ultra-low latency, stable real-time traffic in heterogeneous environments using GStreamer and WebRTC.
 

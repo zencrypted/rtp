@@ -534,7 +534,7 @@ The login page issues a 3-minute session token and redirects to the conference p
   (Part of Zen Crypted X.422.2 Buddha Protocol)*. Axiosis. 2026. ([rtp.pdf](rtp.pdf))
 
 * M. Sokhatsky. *NuStream: A Lightweight, Predictable Deterministic Real-Time Media
-  Pipeline with GStreamer-like API for NuttX RTOS*. Axiosis. 2026. ([gst-nuttx.pdf](gst-nuttx.pdf))
+  Pipeline with GStreamer-like API for NuttX RTOS*. Axiosis. 2026. ([rtp-nuttx.pdf](rtp-nuttx.pdf))
 
 ## 10. Credits
 

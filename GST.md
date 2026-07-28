@@ -159,9 +159,9 @@ typedef struct {
     GstElement *a_convert;    // audioconvert inserted before audioresample
     GstElement *a_resample;   // audioresample normalizing sample rate
     GstElement *a_jitter;     // leaky 500ms audio jitter queue
-    gint        grid_idx;     // Grid slot index [0..15] controlling spatial position
-    gboolean    remote_desc_set; // Flag tracking if SDP answer was applied
-    gboolean    bundled;      // Flag indicating bundled RTCP
+    gint        grid_idx;               // Grid slot index [0..15] controlling spatial position
+    gboolean    remote_desc_set;        // Flag tracking if SDP answer was applied
+    gboolean    bundled;                // Flag indicating bundled RTCP
     GArray     *pending_ice_candidates; // ICE candidates awaiting SDP resolution
 } PeerInfo;
 ```

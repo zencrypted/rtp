@@ -854,12 +854,12 @@ int main(int argc, char *argv[]) {
         g_printerr("Using HLS segment generation format (H.264).\n");
         pipeline_str = g_strdup_printf(
             "videotestsrc pattern=black is-live=true do-timestamp=true ! timeoverlay valignment=bottom halignment=left font-desc=\"Sans, 48\" ! "
-            "video/x-raw,width=1920,height=1080,framerate=15/1 ! queue max-size-buffers=1 leaky=downstream ! "
-            "mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 ! queue max-size-buffers=5 leaky=downstream ! amix.sink_0 "
+            "video/x-raw,width=1920,height=1080,framerate=15/1 ! queue max-size-buffers=0 leaky=downstream ! "
+            "mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 ! queue max-size-buffers=0 leaky=downstream ! amix.sink_0 "
             "compositor name=mix ignore-inactive-pads=true ! videoconvert ! "
             "video/x-raw,format=I420,width=1920,height=1080,framerate=15/1 ! "
             "queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! "
-            "x264enc bitrate=2000 speed-preset=ultrafast key-int-max=15 tune=zerolatency !"
+            "x264enc bitrate=4000 speed-preset=ultrafast key-int-max=15 tune=zerolatency !"
             "video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee "
             "h264_tee. ! queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream ! rtph264pay config-interval=1 pt=96 ! tee name=vtee "
             "audiomixer name=amix ignore-inactive-pads=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee "

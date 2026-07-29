@@ -5,7 +5,7 @@ defmodule RTP.Mix do
     [
       app: :rtp,
       description: "ERP/1: GST RTP RTC ICE SDP H.264 AVC H.265 HEVC MP4 MPEG-2 HLS",
-      version: "0.7.28",
+      version: "0.7.29",
       package: package(),
       aliases: aliases(),
       deps: deps()
@@ -21,7 +21,7 @@ defmodule RTP.Mix do
 
   def package do
     [
-      files: ~w(config lib src priv mix.exs rebar.config README.md GST.md rtp.pdf),
+      files: ~w(config lib src priv mix.exs rebar.config README.md),
       licenses: ["ISC"],
       maintainers: ["Namdak Tonpa"],
       name: :rtp,

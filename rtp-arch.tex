@@ -1,0 +1,549 @@
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{helvet}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage[english,ukrainian]{babel}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\definecolor{nato}{HTML}{293757}
+\definecolor{footergray}{gray}{0.65}
+
+\geometry{a4paper,left=3cm,right=3cm,top=3cm,bottom=3cm}
+\renewcommand{\familydefault}{\sfdefault}
+\setcounter{secnumdepth}{3}
+
+\DeclareFontFamily{T2A}{phv}{}
+\DeclareFontShape{T2A}{phv}{m}{n}{<->ssub * cmss/m/n}{}
+\DeclareFontShape{T2A}{phv}{bx}{n}{<->ssub * cmss/bx/n}{}
+\DeclareFontShape{T2A}{phv}{m}{it}{<->ssub * cmss/m/it}{}
+\DeclareFontShape{T2A}{phv}{bx}{it}{<->ssub * cmss/bx/it}{}
+
+\titleformat{\section} {\color{nato}\Huge\bfseries}{\thesection.}{1em}{}
+\titlespacing*{\section}{0pt}{30pt}{12pt}
+\titleformat{\subsection} {\color{nato}\LARGE\bfseries}{\thesubsection.}{1em}{}
+\titlespacing*{\subsection}{0pt}{20pt}{8pt}
+\titleformat{\subsubsection} {\color{nato}\Large\bfseries}{\thesubsubsection.}{1em}{}
+\titlespacing*{\subsubsection}{0pt}{10pt}{6pt}
+
+\fancyhf{}
+\fancyhead[R]{\small\color{footergray} 27 червня 2026}
+\fancyfoot[L]{\small\color{footergray} ERP/1. Модуль Конференцзв'язок}
+\fancyfoot[R]{\small\color{footergray}\thepage}
+
+\newcommand\HUGE[1]{\fontsize{40}{40}\selectfont #1}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\footrule}{\color{footergray}\hrule width \textwidth height 0.4pt}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, fit, backgrounds}
+
+\let\originalfootnotesize\footnotesize
+\let\oldverbatim\verbatim
+\let\oldendverbatim\endverbatim
+\renewenvironment{verbatim}{\originalfootnotesize\oldverbatim}{\oldendverbatim}
+
+\title{Architecture of GStreamer WebRTC MCU Media Compositor for Chat Applications}
+\author{Namdak Tonpa, Zen Crypted}
+\date{\today}
+
+\begin{document}
+
+\begin{titlepage}
+  \AddToShipoutPictureBG*{\AtPageLowerLeft{\color{nato}\rule{\paperwidth}{\paperheight}}}
+  \color{white}\thispagestyle{empty}\vspace*{3cm}\centering
+  {\Huge  \textbf{SYNRC: OpenWebRTC} \par} \vspace{1.5cm}
+  {\HUGE  \textbf{Технічна архітектура} \par} \vspace{1.5cm}
+  {\LARGE \textbf{Аудіо-відео композитора медіа-потоків для WebRTC з використанням GStreamer} \par} \vspace{1.5cm}
+  {\large На основі Технічних Вимог \par}
+  {\large Згідно з Постановою КМУ № 205 від 21.02.2025 \par}
+  {\large Формалізованих за стандартом ISO/IEC/IEEE 29148:2018 \par}
+  \vfill
+  {\large 2026 \copyright\ Криптографічні Телесистеми \par}
+\end{titlepage}
+
+\newpage
+\maketitle
+
+\begin{abstract}
+This document provides a specification of the GStreamer-based Multipoint Control Unit (MCU)
+implemented in \texttt{c\_src/gst.c} in 1K LOC. It defines the pipeline architecture, data structures,
+dynamic peer lifecycle, inter-process communication protocol, output multiplexing strategies,
+and architectural invariants of the production C99 compositor binary \texttt{priv/gst}.
+\end{abstract}
+
+\newpage
+\tableofcontents
+
+\newpage
+\section{Introduction}
+
+The `gst` binary is a self-contained C99 process constituting the media plane
+of the RTP video conferencing system. It fulfils three simultaneous responsibilities:
+
+\begin{enumerate}
+\item \textbf{Upstream Ingest} --- Receives encrypted WebRTC SRTP/SRTCP streams from each
+   participant via independent \texttt{webrtcbin} elements, decoding them into raw
+   audio-visual frames using per-peer \texttt{decodebin} instances.
+\item \textbf{Mixing and Compositing} --- Composites all decoded video feeds into a single
+   1920x1080 spatial grid via GStreamer's \texttt{compositor} and additively mixes
+   all audio tracks through \texttt{audiomixer}.
+\item \textbf{Downstream Broadcast and Recording} --- Re-encodes and broadcasts the composite
+   stream back to every participant as a single WebRTC downstream connection while
+   simultaneously writing the session to disk in HLS or fragmented MP4 format.
+\end{enumerate}
+
+The binary is spawned as a supervised OS port process by the Erlang
+\texttt{rtp\_broker} \texttt{gen\_server}. All signaling is exchanged as newline-delimited
+JSON over UNIX standard I/O pipes, making the media plane fully decoupled from
+the Erlang control plane.
+
+\section{Mixer Architecture}
+
+\subsection{High-Level Architecture}
+
+The following diagram provides a macro-level conceptual overview of the media pipeline.
+It illustrates the four primary lifecycle stages (Ingest, Central Mixer, Broadcast, and Recording)
+without getting bogged down in the exact pad connections or intermediate conversion elements.
+Use this to understand the general data flow of the MCU.
+
+\begin{verbatim}
+flowchart TD
+    Peer[WebRTC Peer] <--> WB[webrtcbin]
+    subgraph Ingest ["Low-Latency Ingest"]
+        WB   --> DB[decodebin]
+        DB   --> VC[videoconvert]
+        VC   --> VR[videoscale+rate+caps]
+        VR   --> JQ[v_jitter queue leaky 500ms]
+        JQ   --> COMP[compositor Grid]
+        DB   --> AC[audioconvert]
+        AC   --> AJQ[a_jitter queue leaky 500ms]
+        AJQ  --> AMIX[audiomixer]
+    end
+    subgraph Mixer ["Central Mixer"]
+        COMP --> ENC[x264enc ultrafast zerolatency]
+        ENC  --> TEE[tee]
+        AMIX --> ATEE[audio tee]
+    end
+    subgraph Broadcast ["Broadcast"]
+        TEE  --> VQ[per-peer v_queue leaky 1s] --> WB
+        ATEE --> AQ[per-peer a_queue leaky 1s] --> WB
+    end
+    subgraph Recording ["Recording"]
+        TEE  --> MUX[mp4mux / hlssink2] --> OUT[Output File]
+        ATEE --> MUX
+    end
+    classDef critical fill:#FF6B6B,stroke:#FF0000,color:white
+    classDef queue fill:#4ECDC4,stroke:#45B7D1
+    classDef mixer fill:#45B7D1,stroke:#2C8C9E
+    class JQ,AJQ critical
+    class VQ,AQ queue
+    class COMP,ENC,AMIX mixer
+\end{verbatim}
+
+\subsubsection{Low-Level Detailed Topology}
+
+The second diagram below provides the micro-level exact element topology.
+It explicitly maps every dynamic pad connection (e.g., \texttt{sink\_N}, \texttt{sink\_0}, \texttt{sink\_1})
+and dual-tee bifurcations exactly as they are constructed in \texttt{gst.c}.
+Use this diagram as the canonical reference when reading or modifying the C source code.
+
+\begin{verbatim}
+flowchart TD
+    %% External Peers
+    Peer[WebRTC Peer\nBrowser] <--> WB[webrtcbin]
+
+    %% Ingest Path (Per Peer)
+    subgraph Ingest ["Ingest Path (Per Peer)"]
+        WB -->|src_%u   sink| DB[decodebin]
+        DB -->|src_%u| PAD[pad-added]
+        PAD -->|video pad   sink| VC
+        PAD -->|audio pad   sink| AC
+        subgraph VideoIngest [Video Ingest]
+            VC[videoconvert] -->|src   sink| VS[videoscale]
+            VS -->|src   sink| VR[videorate]
+            VR -->|src   sink| VCAPS[capsfilter<br>30/1 I420]
+            VCAPS -->|src   sink| JQ[v_jitter queue<br>leaky 500ms]
+            JQ -->|src| COMP_SINK[compositor.sink_%u<br>Grid Position]
+        end
+        subgraph AudioIngest [Audio Ingest]
+            AC[audioconvert] -->|src   sink| AR[audioresample]
+            AR -->|src   sink| AJQ[a_jitter queue<br>leaky 500ms]
+            AJQ -->|src| AMIX_SINK[audiomixer.sink_%u]
+        end
+    end
+
+    %% Central Mixing
+    subgraph Mixer ["Central Mixer"]
+        COMP[compositor<br>name=mix<br>ignore-inactive-pads=true] -->|src   sink| VCONV[videoconvert → I420]
+        VCONV -->|src   sink| ENC[x264enc<br>ultrafast + zerolatency]
+        ENC -->|src   sink| HTEE[h264_tee]
+        AMIX[audiomixer<br>name=amix<br>ignore-inactive-pads=true] -->|src   sink| ACONV[audioconvert + resample]
+        ACONV -->|src   sink| RAW_A[raw_atee]
+    end
+
+    %% Broadcast Distribution
+    subgraph Broadcast ["Broadcast to All Peers"]
+        HTEE -->|src_%u   sink| VTEE[vtee]
+        VTEE -->|src_%u   sink| VQ[per-peer v_queue<br>leaky 1s]
+        VQ -->|src   sink_0| WB
+        RAW_A -->|src_%u   sink| ATEE[atee]
+        ATEE -->|src_%u   sink| AQ[per-peer a_queue<br>leaky 1s]
+        AQ -->|src   sink_1| WB
+    end
+
+    %% Recording
+    subgraph Recording ["Recording Output"]
+        HTEE -->|src_%u   video_0| MUX[mp4mux / hlssink2]
+        RAW_A -->|src_%u   audio_0| MUX
+        MUX -->|src| OUT[recording.mp4<br>or HLS segments]
+    end
+
+    classDef webrtc fill:#90EE90,stroke:#228B22
+    classDef mixer fill:#FFB6C1,stroke:#DB7093
+    classDef queue fill:#87CEEB,stroke:#4682B4
+    classDef encoder fill:#FFD700,stroke:#DAA520
+
+    class WB webrtc
+    class COMP,AMIX mixer
+    class JQ,AJQ,VQ,AQ queue
+    class ENC encoder
+\end{verbatim}
+
+\subsection{Data Structures}
+
+\subsubsection{Per-Participant Context Record}
+
+\begin{verbatim}
+typedef struct {
+    gchar      *peer_id;      // Unique participant identifier string
+    GstElement *webrtc;       // webrtcbin element (upstream + downstream)
+    GstElement *v_queue;      // Leaky downstream video broadcast queue
+    GstElement *a_queue;      // Leaky downstream audio broadcast queue
+    GstPad     *comp_pad;     // Requested compositor sink pad (retained for cleanup)
+    GstPad     *amix_pad;     // Requested audiomixer sink pad (retained for cleanup)
+    GstElement *v_decodebin;  // Dynamically attached video decodebin
+    GstElement *a_decodebin;  // Dynamically attached audio decodebin
+    GstElement *v_convert;    // videoconvert inserted between decodebin and scaler
+    GstElement *v_scale;      // videoscale for predictable output dimensions
+    GstElement *v_rate;       // videorate for duplicating missing frames
+    GstElement *v_caps;       // capsfilter enforcing I420 and 30fps
+    GstElement *v_jitter;     // leaky 500ms queue acting as an asynchronous thread boundary
+    GstElement *a_convert;    // audioconvert inserted before audioresample
+    GstElement *a_resample;   // audioresample normalizing sample rate
+    GstElement *a_jitter;     // leaky 500ms audio jitter queue
+    gint        grid_idx;               // Grid slot index [0..15] controlling spatial position
+    gboolean    remote_desc_set;        // Flag tracking if SDP answer was applied
+    gboolean    bundled;                // Flag indicating bundled RTCP
+    GArray     *pending_ice_candidates; // ICE candidates awaiting SDP resolution
+} PeerInfo;
+\end{verbatim}
+
+\texttt{PeerInfo} aggregates every GStreamer element and requested pad dynamically created
+on peer join, enabling deterministic full cleanup on departure. All instances are
+stored in a \texttt{GHashTable} keyed by \texttt{peer\_id} with value destructor \texttt{free\_peer\_info}.
+
+\subsubsection{Singleton Pipeline State}
+
+\begin{verbatim}
+typedef struct {
+    GstElement  *pipeline;
+    GstElement  *compositor;     // Video compositing mixer (name="mix")
+    GstElement  *audiomixer;     // Audio mixing element (name="amix")
+    GstElement  *video_tee;      // Broadcast video tee (name="vtee")
+    GstElement  *audio_tee;      // Broadcast audio tee (name="atee")
+    GHashTable  *webrtcbins;     // peer_id -> PeerInfo*
+    GMainLoop   *loop;
+    gboolean     grid_slots[16]; // Spatial slot occupancy bitmap (up to 4x4)
+    gint         pad_index;      // Global compositor pad counter
+} RecorderState;
+\end{verbatim}
+
+\texttt{RecorderState} is a process-global singleton. References to the four permanent
+pipeline elements are resolved by name after \texttt{gst\_parse\_launch()} and cached
+for O(1) dynamic peer attachment.
+
+\subsection{Static Pipeline Topology}
+
+The persistent portion of the pipeline is constructed once at startup via
+`gst\_parse\_launch()`. Three variants are supported, selected by the second CLI argument.
+
+\subsubsection{HLS/H.264 (Deafault)}
+
+\begin{verbatim}
+videotestsrc pattern=black is-live=true do-timestamp=true !
+timeoverlay valignment=bottom halignment=left font-desc=\"Sans, 48\" !
+video/x-raw,width=1920,height=1080,framerate=15/1 ! queue max-size-buffers=1 leaky=downstream !
+mix.sink_0 audiotestsrc is-live=true do-timestamp=true volume=0 !
+queue max-size-buffers=5 leaky=downstream !
+amix.sink_0 compositor name=mix ignore-inactive-pads=true ! videoconvert !
+video/x-raw,format=I420,width=1920,height=1080,framerate=15/1 !
+queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
+x264enc bitrate=2000 speed-preset=ultrafast key-int-max=15 tune=zerolatency !
+video/x-h264,profile=baseline ! h264parse ! tee name=h264_tee h264_tee. !
+queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
+rtph264pay config-interval=1 pt=96 ! tee name=vtee audiomixer name=amix ignore-inactive-pads=true !
+audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! tee name=raw_atee raw_atee. !
+queue max-size-time=300000000 max-size-buffers=0 max-size-bytes=0 leaky=downstream !
+opusenc ! rtpopuspay pt=111 ! tee name=atee h264_tee. !
+queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true !
+hlssink2.video raw_atee. !
+queue max-size-time=300000000 max-size-bytes=0 max-size-buffers=0 leaky=downstream flush-on-eos=true !
+audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 ! avenc_aac ! aacparse !
+hlssink2.audio hlssink2 name=hlssink2 async-handling=true location=%s/segment_%" G_GINT64_FORMAT "_%%05d.ts
+playlist-location=%s/index.m3u8 target-duration=2 max-files=0 playlist-length=10
+\end{verbatim}
+
+\subsubsection{Fragmented MP4}
+
+Identical upstream compositing graph; HLS sink replaced by:
+
+\begin{verbatim}
+mp4mux name=mux fragment-duration=1000 streamable=true !
+  filesink location=<out_dir>/recording.mp4
+
+h264_tee. ! queue leaky=2 max-size-time=30000000000 ! mux.video_0
+raw_atee. ! queue leaky=2 max-size-time=30000000000 !
+  audioconvert ! audioresample ! audio/x-raw,rate=44100,channels=2 !
+  avenc_aac ! aacparse ! mux.audio_0
+\end{verbatim}
+
+\subsubsection{HEVC/HLS}
+
+Dual-encoding via `raw\_vtee`: H.264 for WebRTC participants; H.265 for HLS storage.
+Audio follows the same `raw\_atee` bifurcation.
+
+\subsubsection{Invariant Bootstrap Sources}
+
+A live black `videotestsrc` on `mix.sink\_0` (zorder=1) and a silent `audiotestsrc`
+on `amix.sink\_0` are permanently active. They prevent scheduler stalls when no peers
+are connected and allow dynamic peer sources to preroll instantaneously.
+
+\subsection{Dynamic Peer Lifecycle}
+
+\subsubsection{Peer Join}
+
+Six ordered operations on receipt of \texttt{\{"type":"peer\_joined","peer\_id":"..."\}}:
+
+\begin{enumerate}
+\item Grid slot allocation: Scans `state.grid\_slots[0..15]` for the first free slot.
+\item \texttt{webrtcbin} creation: Named element with 50 ms latency budget.
+\item Leaky broadcast queue creation: `leaky=2`, `max-size-time=1000000000` (1 s).
+\item Downstream broadcast linkage: `vtee -> v\_queue -> webrtcbin.sink\_0`; `atee -> a\_queue -> webrtcbin.sink\_1`.
+\item State synchronization: `gst\_element\_sync\_state\_with\_parent()` on all added elements.
+\item SDP offer generation: Asynchronous `GstPromise` triggers `on\_offer\_created`.
+\end{enumerate}
+
+\subsubsection{Incoming RTP Track Routing}
+
+\begin{verbatim}
+const gchar *media = gst_structure_get_string(str, "media");
+gboolean is_video = (g_strcmp0(media, "video") == 0);
+\end{verbatim}
+
+A `decodebin` is linked to the RTP pad; decoded pads trigger `on\_decoded\_pad`.
+
+\subsubsection{Decoded Pad Routing}
+
+\textbf{Video path} --- compositor quadrant placement:
+
+\begin{verbatim}
+GstPad *comp_pad = gst_element_request_pad_simple(state.compositor, "sink_%u");
+peer->comp_pad = comp_pad;
+
+gint idx = peer->grid_idx;
+gint w = WIDTH / 2;   // 960
+gint h = HEIGHT / 2;  // 540
+gint x = (idx % 2) * w;
+gint y = (idx / 2) * h;
+
+g_object_set(comp_pad, "xpos", x, "ypos", y, "width", w, "height", h,
+             "zorder", (guint)(idx + 10), "sizing-policy", 1, NULL);
+\end{verbatim}
+
+**Audio path**: `audioconvert -> audioresample -> audiomixer.sink\_\%u`.
+
+\subsubsection{Peer Departure — Six-Stage Teardown}
+
+\begin{verbatim}
+| Stage | Action                                                                                       |
+|-------|----------------------------------------------------------------------------------------------|
+| 1     | Unlink/release vtee src pad; NULL v_queue; remove from pipeline                              |
+| 2     | Unlink/release atee src pad; NULL a_queue; remove from pipeline                              |
+| 3     | Unlink from comp_pad; release compositor pad; NULL/remove v_convert, v_decodebin             |
+| 4     | Unlink from amix_pad; release audiomixer pad; NULL/remove a_resample, a_convert, a_decodebin |
+| 5     | NULL webrtcbin; remove from pipeline                                                         |
+| 6     | Free grid slot; remove from webrtcbins hash table                                            |
+\end{verbatim}
+
+\subsection{Signaling Protocol (Port IPC)}
+
+Newline-delimited JSON over UNIX stdio. Stdin messages are processed synchronously
+on the GLib main loop via `g\_io\_add\_watch`, serializing all pipeline mutations.
+
+\subsubsection{Erlang to GStreamer (stdin)}
+
+\begin{verbatim}
+| Type                | Fields    | Effect                  |
+|---------------------|-----------|-------------------------|
+| `peer_joined`       | `peer_id` | Triggers `setup_peer()` |
+| `sdp_answer`        | `peer_id`, `sdp` | Sets remote description on webrtcbin |
+| `ice_candidate`     | `peer_id`, `candidate.sdpMLineIndex`, `candidate.candidate` | Adds ICE candidate |
+| `peer_left`         | `peer_id` | Triggers six-stage `cleanup_peer()` |
+| `exit`              | — | Sends EOS to mux; finalizes recording |
+\end{verbatim}
+
+\subsubsection{GStreamer to Erlang (stdout)}
+
+\begin{verbatim}
+| Type                | Fields    | Effect                  |
+|---------------------|-----------|-------------------------|
+| `sdp_offer`         | `peer_id`, `sdp` | Forwarded by broker to browser via Syn |
+| `ice_candidate`     | `peer_id`, `candidate` | Forwarded to browser |
+| `recording_started` | — | Pipeline reached PLAYING state |
+\end{verbatim}
+
+\subsection{Output Delivery Nuances}
+
+\subsubsection{PTS/DTS Integrity}
+
+HLS tees after `h264parse`, before `rtph264pay`. RTP payload/depayload cycles
+corrupt timestamps; `mpegtsmux` is intolerant of discontinuities and MSE decoders
+freeze permanently after the first affected segment.
+
+\subsubsection{Disk-I/O Isolation}
+
+30-second leaky queues (`max-size-time=30000000000`) on storage branches absorb
+filesystem stalls, guaranteeing HLS/MP4 continuity independent of disk I/O jitter.
+
+\subsubsection{Fragmented MP4}
+
+`mp4mux fragment-duration=1000 streamable=true` interleaves `moof`/`mdat` atoms,
+enabling progressive download and crash-resilient playback without a terminal `moov`.
+
+\subsubsection{Dual-Encode}
+
+`raw\_vtee` drives separate `x264enc` (WebRTC) and `x265enc` (HLS) encoder chains,
+providing H.265 fidelity for capable clients without breaking WebRTC compatibility.
+
+\subsection{Signal Handling and Graceful Shutdown}
+
+\begin{verbatim}
+GstElement *mux = gst_bin_get_by_name(GST_BIN(state.pipeline), "mux");
+if (mux) {
+    gst_element_send_event(mux, gst_event_new_eos());
+    gst_object_unref(mux);
+}
+\end{verbatim}
+
+The muxer finalizes index structures before the loop quits on bus EOS.
+
+\subsection{Build and Evaluation}
+
+\subsubsection{Dependencies (macOS)}
+
+\begin{verbatim}
+brew install gstreamer libnice libnice-gstreamer json-glib
+\end{verbatim}
+
+\subsubsection{Dependencies (Ubuntu / WSL2)}
+
+\begin{verbatim}
+sudo apt-get update
+sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+     libgstreamer-plugins-bad1.0-dev libjson-glib-dev pkg-config
+\end{verbatim}
+
+In PowerShell allow UDP traffic:
+
+\begin{verbatim}
+New-NetFirewallRule -DisplayName "RTP WebRTC Media UDP (WSL2)"
+                    -Direction Inbound -Action Allow -Protocol UDP -LocalPort 49152-65535
+\end{verbatim}
+
+In `gst.c`:
+
+\begin{verbatim}
+g_object_set(webrtc, "latency", 50, "stun-server", "stun://stun.l.google.com:19302", NULL);
+\end{verbatim}
+
+\subsubsection{Compile}
+
+\begin{verbatim}
+cc -O3 c_src/gst.c -o priv/gst \
+  $(pkg-config --cflags --libs \
+    gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0 json-glib-1.0)
+\end{verbatim}
+
+\subsubsection{Standalone Test}
+
+\begin{verbatim}
+mkdir -p /tmp/rtp-test && ./priv/gst /tmp/rtp-test ts
+\end{verbatim}
+
+\subsubsection{Launch via Erlang Node}
+
+\begin{verbatim}
+$ iex -S mix
+$ open http://localhost:8081/app/login.htm
+\end{verbatim}
+
+\subsubsection{Mock Devices}
+
+**Chrome**: `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`
+**Safari**: Develop -> WebRTC -> Use Mock Capture Devices
+
+\subsection{Architectural Invariants}
+
+\begin{verbatim}
+| Invariant | Mechanism |
+|---|---|
+| Continuous pipeline flow | `videotestsrc` + `audiotestsrc` on compositor/audiomixer `sink_0` |
+| Thread-safe pipeline mutation | All mutations on GLib main loop via IO channel watch |
+| Back-pressure isolation | Per-peer leaky queues (`leaky=2`, `max-size-time=1s`) |
+| Z-order correctness | Background `zorder=1`; peers `zorder = grid_idx + 10` |
+| PTS/DTS integrity | Tees after `h264parse`, before `rtph264pay` |
+| Crash-resilient MP4 | `mp4mux streamable=true fragment-duration=1000` |
+| Disk-I/O isolation | 30-second leaky queues on HLS/MP4 storage branches |
+| Signal safety | `g_unix_signal_add()` dispatches to GLib main loop |
+| Resource reclamation | Six-stage ordered cleanup on every peer departure |
+| Grid capacity | Up to 16 simultaneous participants (4x4 spatial grid) |
+\end{verbatim}
+
+\subsection{Low Latency Config for Hardware}
+
+Current Stable Configuration:
+
+\begin{verbatim}
+| Component            | Recommended Value | Notes                |
+|----------------------|-------------------|----------------------|
+| webrtcbin latency    | 100 ms            | Extectations         |
+| Video jitter queue   | 200 ms            | After decode         |
+| Audio jitter queue   | 250 ms            | After decode         |
+| Outgoing v_queue     | 400 ms            | Critical             |
+| Outgoing a_queue     | 450 ms            | Audio more sensitive |
+| Pre-encoder queue    | 300 ms            | Before x264enc       |
+| key-int-max          | 60                | Keep higher on Pi    |
+| x264enc speed-preset | ultrafast         | Do not use superfast |
+\end{verbatim}
+
+\section{Conclusion}
+
+\end{document}
